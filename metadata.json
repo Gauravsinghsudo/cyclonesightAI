@@ -1,0 +1,6 @@
+{
+  "name": "CYCLONE SIGHT AI - Cyclone Intelligence Platform",
+  "description": "Real-time monitoring, prediction and intelligence platform for tropical cyclones powered by ISRO MOSDAC SCORPIO satellite records and INSAT-3DS imagery.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -60,6 +60,7 @@ export interface AlertNotification {
   timestamp: string;
   cycloneId?: string;
   isRead: boolean;
+  createdAt?: number;
 }
 
 export interface DataSourceItem {

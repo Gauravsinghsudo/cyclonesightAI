@@ -17,6 +17,7 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
+import { DataSourceItem } from '../types';
 
 export type NavItemId = 
   | 'dashboard'
@@ -39,6 +40,7 @@ interface SidebarProps {
   onOpenDataSources: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  dataSources?: DataSourceItem[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -47,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenDataSources,
   mobileOpen,
   onCloseMobile,
+  dataSources,
 }) => {
   const { t } = useI18n();
   const navItems = [
@@ -130,7 +133,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="flex flex-col gap-1 mb-3 pt-2 border-t border-slate-800/60">
           <span className="text-[11px] text-slate-400">{t('dataSourcesOnline')}</span>
-          <span className="text-sm font-bold text-white tracking-wide">12 / 12</span>
+          <span className="text-sm font-bold text-white tracking-wide">
+            {dataSources ? dataSources.filter((d) => d.status === 'online').length : 9} / {dataSources ? dataSources.length : 9}
+          </span>
         </div>
 
         <button

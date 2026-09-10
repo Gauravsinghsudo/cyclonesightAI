@@ -80,6 +80,20 @@ export const DATA_SOURCES: DataSourceItem[] = [
   { id: '9', name: 'ERA5 ECMWF Reanalysis', type: 'Reanalysis', status: 'online', latency: 'Synced', provider: 'ECMWF Copernicus', updateFrequency: 'Hourly' },
 ];
 
+export const ALERT_EXPIRY_MS = 7 * 60 * 60 * 1000; // 7 hours auto-delete window
+
+export function getAlertRemainingTime(createdAt?: number): string {
+  if (!createdAt) return 'Expires in <7h';
+  const remaining = ALERT_EXPIRY_MS - (Date.now() - createdAt);
+  if (remaining <= 0) return 'Expiring now';
+  const hours = Math.floor(remaining / (60 * 60 * 1000));
+  const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+  if (hours > 0) {
+    return `Expires in ${hours}h ${minutes}m`;
+  }
+  return `Expires in ${Math.max(1, minutes)}m`;
+}
+
 export const NOTIFICATIONS: AlertNotification[] = [
   {
     id: 'alert-1',
@@ -89,6 +103,7 @@ export const NOTIFICATIONS: AlertNotification[] = [
     timestamp: 'Today, Live Synced',
     cycloneId: 'MOSDAC-DANA',
     isRead: false,
+    createdAt: Date.now() - 35 * 60 * 1000,
   },
   {
     id: 'alert-2',
@@ -98,6 +113,7 @@ export const NOTIFICATIONS: AlertNotification[] = [
     timestamp: 'Today, 15m Cadence',
     cycloneId: 'MOSDAC-DANA',
     isRead: false,
+    createdAt: Date.now() - 110 * 60 * 1000,
   },
   {
     id: 'alert-3',
@@ -107,5 +123,6 @@ export const NOTIFICATIONS: AlertNotification[] = [
     timestamp: 'Archive Record',
     cycloneId: 'MOSDAC-DANA',
     isRead: false,
+    createdAt: Date.now() - 210 * 60 * 1000,
   },
 ];

@@ -15,6 +15,10 @@ import {
   ExternalLink,
   RotateCcw,
   Navigation,
+  ChevronDown,
+  SlidersHorizontal,
+  X,
+  Info,
 } from 'lucide-react';
 import { CycloneData, TrajectoryPoint } from '../../types';
 import { getMosdacCycloneCatalog } from '../../services/mosdacService';
@@ -120,8 +124,27 @@ export const LeafletCycloneMap: React.FC<LeafletCycloneMapProps> = ({
   const [layerStatus, setLayerStatus] = useState('Live layers ready');
   const [activeWaypoint, setActiveWaypoint] = useState<TrajectoryPoint | null>(null);
 
+  // Map tools dropdown & empty-state message states
+  const [isToolsOpen, setIsToolsOpen] = useState(false);
+  const [isEmptyStateDismissed, setIsEmptyStateDismissed] = useState(false);
+  const toolsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (toolsRef.current && !toolsRef.current.contains(event.target as Node)) {
+        setIsToolsOpen(false);
+      }
+    }
+    if (isToolsOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isToolsOpen]);
+
   const activeCyclone = useMemo(() => {
-    return cyclones.find((c) => c.id === selectedCycloneId) || cyclones[0] || null;
+    return selectedCycloneId ? cyclones.find((c) => c.id === selectedCycloneId) || null : null;
   }, [cyclones, selectedCycloneId]);
 
   // 1. Initialize Leaflet Map
@@ -485,186 +508,275 @@ export const LeafletCycloneMap: React.FC<LeafletCycloneMapProps> = ({
 
   return (
     <div id="leaflet-cyclone-map-container" className="relative z-0 isolate w-full rounded-2xl overflow-hidden border border-slate-800 shadow-2xl bg-[#060b16]" style={{ height }}>
-      {/* Top Map Header & Layer Selector Bar */}
-      <div className="absolute top-3 left-3 right-3 z-[400] flex flex-col items-start gap-2 pointer-events-none">
+      {/* Top Map Header & Region Bar */}
+      <div
+        className="absolute top-3 left-3 right-3 z-[1000] flex items-center gap-1.5 max-w-[calc(100%-24px)] overflow-x-auto scrollbar-none pointer-events-auto"
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
         {/* Left: Basin Title & Source badge + Region Quick Buttons */}
-        <div className="flex items-center gap-1.5 max-w-full overflow-x-auto pointer-events-auto">
-          <div className="flex items-center gap-2 bg-slate-950/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800/90 text-xs shadow-lg">
-            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            <span className="font-bold text-white">India & NIO GIS Radar</span>
-            <span className="text-slate-500">|</span>
-            <a
-              href="https://mosdac.gov.in/scorpio/"
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 font-medium"
-            >
-              <Database className="w-3 h-3" />
-              <span>MOSDAC</span>
-              <ExternalLink className="w-2.5 h-2.5" />
-            </a>
-          </div>
-
-          {/* Region Jump Buttons */}
-          <div className="hidden sm:flex items-center rounded-xl bg-slate-950/90 backdrop-blur-md border border-slate-800 p-0.5 text-[11px] shadow-lg">
-            <button
-              onClick={() => handleZoomRegion('india')}
-              className="px-2 py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 font-medium transition cursor-pointer"
-              title="Fit to Real Map of India Subcontinent"
-            >
-              🇮🇳 India
-            </button>
-            <button
-              onClick={() => handleZoomRegion('bob')}
-              className="px-2 py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 font-medium transition cursor-pointer"
-              title="Zoom to Bay of Bengal"
-            >
-              🌊 Bay of Bengal
-            </button>
-            <button
-              onClick={() => handleZoomRegion('arabian')}
-              className="px-2 py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 font-medium transition cursor-pointer"
-              title="Zoom to Arabian Sea"
-            >
-              ⛵ Arabian Sea
-            </button>
-            {activeCyclone && (
-              <button
-                onClick={() => handleZoomRegion('storm')}
-                className="px-2 py-1 rounded-lg text-blue-400 hover:text-blue-300 hover:bg-blue-950/60 font-medium transition cursor-pointer"
-                title={`Focus on ${activeCyclone.name}`}
-              >
-                🎯 {activeCyclone.name}
-              </button>
-            )}
-          </div>
+        <div className="flex items-center gap-2 bg-slate-950/90 backdrop-blur-md px-3 py-1.5 rounded-xl border border-slate-800/90 text-xs shadow-lg shrink-0">
+          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+          <span className="font-bold text-white whitespace-nowrap">India &amp; NIO GIS Radar</span>
+          <span className="text-slate-500">|</span>
+          <a
+            href="https://mosdac.gov.in/scorpio/"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 font-medium whitespace-nowrap"
+          >
+            <Database className="w-3 h-3" />
+            <span>MOSDAC</span>
+            <ExternalLink className="w-2.5 h-2.5" />
+          </a>
         </div>
 
-        {/* Right: Basemap & Layer Controls */}
-        <div className="flex max-w-full items-center gap-1.5 overflow-x-auto bg-slate-950/90 backdrop-blur-md p-1.5 rounded-xl border border-slate-700 text-xs shadow-lg pointer-events-auto" aria-label="Map tools">
-          <span className="shrink-0 px-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">Map tools</span>
-          {/* Basemap switch */}
-          <div className="flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 text-[11px]">
+        {/* Region Jump Buttons */}
+        <div className="flex items-center rounded-xl bg-slate-950/90 backdrop-blur-md border border-slate-800 p-0.5 text-[11px] shadow-lg shrink-0">
+          <button
+            type="button"
+            onClick={() => handleZoomRegion('india')}
+            className="px-2 py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 font-medium transition cursor-pointer whitespace-nowrap"
+            title="Fit to Real Map of India Subcontinent"
+          >
+            🇮🇳 India
+          </button>
+          <button
+            type="button"
+            onClick={() => handleZoomRegion('bob')}
+            className="px-2 py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 font-medium transition cursor-pointer whitespace-nowrap"
+            title="Zoom to Bay of Bengal"
+          >
+            🌊 Bay of Bengal
+          </button>
+          <button
+            type="button"
+            onClick={() => handleZoomRegion('arabian')}
+            className="px-2 py-1 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 font-medium transition cursor-pointer whitespace-nowrap"
+            title="Zoom to Arabian Sea"
+          >
+            ⛵ Arabian Sea
+          </button>
+          {activeCyclone && (
             <button
-              onClick={() => setBaseMap('dark')}
-              className={`px-2 py-1 rounded font-medium transition cursor-pointer ${
-                baseMap === 'dark' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
+              type="button"
+              onClick={() => handleZoomRegion('storm')}
+              className="px-2 py-1 rounded-lg text-blue-400 hover:text-blue-300 hover:bg-blue-950/60 font-medium transition cursor-pointer whitespace-nowrap"
+              title={`Focus on ${activeCyclone.name}`}
             >
-              Standard
+              🎯 {activeCyclone.name}
             </button>
-            <button
-              onClick={() => setBaseMap('satellite')}
-              className={`px-2 py-1 rounded font-medium transition cursor-pointer ${
-                baseMap === 'satellite' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Satellite
-            </button>
-            <button
-              onClick={() => setBaseMap('streets')}
-              className={`px-2 py-1 rounded font-medium transition cursor-pointer ${
-                baseMap === 'streets' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Terrain
-            </button>
-          </div>
-
-          {/* Layer toggles */}
-          <button
-            onClick={() => setShowPorts((prev) => !prev)}
-            title="Toggle Coastal Ports & Doppler Radars"
-            className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center gap-1 ${
-              showPorts
-                ? 'bg-cyan-950 text-cyan-300 border-cyan-800'
-                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-            }`}
-          >
-            <Anchor className="w-3 h-3" />
-            <span className="hidden sm:inline">Ports</span>
-          </button>
-
-          <button
-            onClick={() => setShowWindRadii((prev) => !prev)}
-            title="Toggle 34kt & 64kt Wind Radii Isotachs"
-            className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center gap-1 ${
-              showWindRadii
-                ? 'bg-amber-950 text-amber-300 border-amber-800'
-                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-            }`}
-          >
-            <Wind className="w-3 h-3" />
-            <span className="hidden sm:inline">Wind Radii</span>
-          </button>
-
-          <button
-            onClick={() => setShowCone((prev) => !prev)}
-            title="Toggle 120-hour Forecast Cone of Uncertainty"
-            className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center gap-1 ${
-              showCone
-                ? 'bg-rose-950 text-rose-300 border-rose-800'
-                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-            }`}
-          >
-            <Shield className="w-3 h-3" />
-            <span className="hidden sm:inline">Cone</span>
-          </button>
-
-          <button
-            onClick={() => setShowRadar((prev) => !prev)}
-            title="Toggle live, timestamped precipitation radar tiles"
-            className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center gap-1 ${
-              showRadar ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-            }`}
-          >
-            <Compass className="w-3 h-3" />
-            <span className="hidden sm:inline">Live Radar</span>
-          </button>
-
-          <button
-            onClick={() => setShowSatelliteWMS((prev) => !prev)}
-            title="Toggle raw georeferenced INSAT TIR1 WMS tiles"
-            className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition cursor-pointer flex items-center gap-1 ${
-              showSatelliteWMS ? 'bg-violet-950 text-violet-300 border-violet-800' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
-            }`}
-          >
-            <Layers className="w-3 h-3" />
-            <span className="hidden sm:inline">Raw WMS</span>
-          </button>
+          )}
         </div>
       </div>
 
-      {/* Floating Left Cyclone Selector Buttons */}
-      <div className="absolute top-16 left-3 z-[400] flex flex-col gap-1.5 max-w-[170px] pointer-events-auto">
-        {cyclones.map((c) => {
-          const isSelected = c.id === selectedCycloneId || c === activeCyclone;
-          return (
-            <button
-              key={c.id}
-              onClick={() => {
-                if (onSelectCyclone) onSelectCyclone(c.id);
-                handleFocusCyclone(c.coordinates.lat, c.coordinates.lng);
-              }}
-              className={`px-2.5 py-1.5 rounded-xl border text-left text-xs transition shadow-lg cursor-pointer flex items-center justify-between gap-1.5 ${
-                isSelected
-                  ? 'bg-blue-600 text-white border-blue-400 font-bold'
-                  : 'bg-slate-950/85 hover:bg-slate-800 text-slate-300 border-slate-800 backdrop-blur-md'
-              }`}
-            >
-              <div className="truncate">
-                <div className="leading-tight">{c.name}</div>
-                <div className="text-[10px] opacity-80">{c.maxWindKmh} km/h • {c.pressureHpa} hPa</div>
+      {/* Floating Extreme Left Toolbar: Map Tools (below top options) + Cyclone Selector */}
+      <div
+        className="absolute top-12 left-3 z-[1000] flex flex-col items-start gap-2 pointer-events-auto"
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+      >
+        {/* Map Tools Dropdown */}
+        <div ref={toolsRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setIsToolsOpen((prev) => !prev)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold shadow-lg transition backdrop-blur-md cursor-pointer ${
+              isToolsOpen
+                ? 'bg-blue-600 text-white border-blue-400 shadow-blue-500/20'
+                : 'bg-slate-950/90 hover:bg-slate-900 text-slate-200 border-slate-700'
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-blue-400" />
+            <span>Map Tools</span>
+            <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+              {(showPorts ? 1 : 0) + (showWindRadii ? 1 : 0) + (showCone ? 1 : 0) + (showRadar ? 1 : 0) + (showSatelliteWMS ? 1 : 0)}
+            </span>
+            <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${isToolsOpen ? 'rotate-180' : ''}`} />
+          </button>
+
+          {isToolsOpen && (
+            <div className="absolute left-0 top-full mt-1.5 w-64 rounded-2xl bg-slate-950/95 backdrop-blur-xl border border-slate-700/90 shadow-2xl p-3 z-[1100] flex flex-col gap-3 text-xs text-slate-200 animate-in fade-in zoom-in-95 duration-150">
+              {/* Basemap section */}
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center gap-1">
+                  <Layers className="w-3 h-3 text-blue-400" />
+                  <span>Basemap Style</span>
+                </div>
+                <div className="grid grid-cols-3 gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setBaseMap('dark')}
+                    className={`py-1.5 px-2 rounded-lg font-medium text-[11px] text-center transition cursor-pointer ${
+                      baseMap === 'dark' ? 'bg-blue-600 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Standard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBaseMap('satellite')}
+                    className={`py-1.5 px-2 rounded-lg font-medium text-[11px] text-center transition cursor-pointer ${
+                      baseMap === 'satellite' ? 'bg-blue-600 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Satellite
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBaseMap('streets')}
+                    className={`py-1.5 px-2 rounded-lg font-medium text-[11px] text-center transition cursor-pointer ${
+                      baseMap === 'streets' ? 'bg-blue-600 text-white font-semibold shadow-sm' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Terrain
+                  </button>
+                </div>
               </div>
-              <Navigation className={`w-3 h-3 shrink-0 ${isSelected ? 'text-white' : 'text-slate-400'}`} />
-            </button>
-          );
-        })}
+
+              {/* Feature / Layer Toggles */}
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  Layers &amp; Overlays
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  {/* Ports */}
+                  <button
+                    type="button"
+                    onClick={() => setShowPorts((p) => !p)}
+                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl border text-[11px] font-medium transition cursor-pointer ${
+                      showPorts
+                        ? 'bg-cyan-950/80 text-cyan-300 border-cyan-800'
+                        : 'bg-slate-900/60 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Anchor className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Coastal Ports &amp; Doppler</span>
+                    </span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${showPorts ? 'bg-cyan-900/70 text-cyan-200' : 'bg-slate-800 text-slate-500'}`}>
+                      {showPorts ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+
+                  {/* Wind Radii */}
+                  <button
+                    type="button"
+                    onClick={() => setShowWindRadii((p) => !p)}
+                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl border text-[11px] font-medium transition cursor-pointer ${
+                      showWindRadii
+                        ? 'bg-amber-950/80 text-amber-300 border-amber-800'
+                        : 'bg-slate-900/60 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Wind className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Wind Radii Isotachs</span>
+                    </span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${showWindRadii ? 'bg-amber-900/70 text-amber-200' : 'bg-slate-800 text-slate-500'}`}>
+                      {showWindRadii ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+
+                  {/* Forecast Cone */}
+                  <button
+                    type="button"
+                    onClick={() => setShowCone((p) => !p)}
+                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl border text-[11px] font-medium transition cursor-pointer ${
+                      showCone
+                        ? 'bg-rose-950/80 text-rose-300 border-rose-800'
+                        : 'bg-slate-900/60 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Shield className="w-3.5 h-3.5 text-rose-400" />
+                      <span>120h Forecast Cone</span>
+                    </span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${showCone ? 'bg-rose-900/70 text-rose-200' : 'bg-slate-800 text-slate-500'}`}>
+                      {showCone ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+
+                  {/* Live Radar */}
+                  <button
+                    type="button"
+                    onClick={() => setShowRadar((p) => !p)}
+                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl border text-[11px] font-medium transition cursor-pointer ${
+                      showRadar
+                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
+                        : 'bg-slate-900/60 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Compass className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Live Rain Radar</span>
+                    </span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${showRadar ? 'bg-emerald-900/70 text-emerald-200' : 'bg-slate-800 text-slate-500'}`}>
+                      {showRadar ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+
+                  {/* Raw WMS */}
+                  <button
+                    type="button"
+                    onClick={() => setShowSatelliteWMS((p) => !p)}
+                    className={`flex items-center justify-between px-2.5 py-1.5 rounded-xl border text-[11px] font-medium transition cursor-pointer ${
+                      showSatelliteWMS
+                        ? 'bg-violet-950/80 text-violet-300 border-violet-800'
+                        : 'bg-slate-900/60 text-slate-400 border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-violet-400" />
+                      <span>Raw INSAT WMS</span>
+                    </span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${showSatelliteWMS ? 'bg-violet-900/70 text-violet-200' : 'bg-slate-800 text-slate-500'}`}>
+                      {showSatelliteWMS ? 'ON' : 'OFF'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Cyclone Selector Buttons (only if multiple cyclones present) */}
+        {cyclones.length > 1 && (
+          <div className="flex flex-col gap-1.5 max-w-[170px]">
+            {cyclones.map((c) => {
+              const isSelected = c.id === selectedCycloneId || c === activeCyclone;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => {
+                    if (onSelectCyclone) onSelectCyclone(c.id);
+                    handleFocusCyclone(c.coordinates.lat, c.coordinates.lng);
+                  }}
+                  className={`px-2.5 py-1.5 rounded-xl border text-left text-xs transition shadow-lg cursor-pointer flex items-center justify-between gap-1.5 ${
+                    isSelected
+                      ? 'bg-blue-600 text-white border-blue-400 font-bold'
+                      : 'bg-slate-950/85 hover:bg-slate-800 text-slate-300 border-slate-800 backdrop-blur-md'
+                  }`}
+                >
+                  <div className="truncate">
+                    <div className="leading-tight">{c.name}</div>
+                    <div className="text-[10px] opacity-80">{c.maxWindKmh} km/h • {c.pressureHpa} hPa</div>
+                  </div>
+                  <Navigation className={`w-3 h-3 shrink-0 ${isSelected ? 'text-white' : 'text-slate-400'}`} />
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Floating Right Map Zoom & Reset Tool Controls */}
       {showControls && (
-        <div className="absolute bottom-6 right-3 z-[400] flex flex-col gap-1.5 bg-slate-950/90 backdrop-blur-md p-1 rounded-xl border border-slate-800 shadow-xl pointer-events-auto">
+        <div
+          className="absolute bottom-6 right-3 z-[1000] flex flex-col gap-1.5 bg-slate-950/90 backdrop-blur-md p-1 rounded-xl border border-slate-800 shadow-xl pointer-events-auto"
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
           <button
             onClick={handleZoomIn}
             title="Zoom In"
@@ -690,7 +802,11 @@ export const LeafletCycloneMap: React.FC<LeafletCycloneMapProps> = ({
       )}
 
       {showRadar && radarFrames.length > 1 && (
-        <div className="absolute bottom-20 right-3 z-[400] flex items-center gap-1 bg-slate-950/90 border border-slate-800 rounded-xl p-1.5 text-[10px] shadow-xl">
+        <div
+          className="absolute bottom-20 right-3 z-[1000] flex items-center gap-1 bg-slate-950/90 border border-slate-800 rounded-xl p-1.5 text-[10px] shadow-xl"
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
           <button onClick={() => setRadarFrameIndex((i) => Math.max(0, i - 1))} className="px-1.5 py-1 text-slate-300 hover:text-white" title="Previous radar frame">‹</button>
           <span className="text-emerald-300 whitespace-nowrap">{radarFrameIndex + 1}/{radarFrames.length}</span>
           <button onClick={() => setRadarFrameIndex((i) => Math.min(radarFrames.length - 1, i + 1))} className="px-1.5 py-1 text-slate-300 hover:text-white" title="Next radar frame">›</button>
@@ -699,7 +815,11 @@ export const LeafletCycloneMap: React.FC<LeafletCycloneMapProps> = ({
 
       {/* Bottom Telemetry HUD */}
       {activeCyclone && (
-        <div className="absolute bottom-3 left-3 right-16 z-[400] bg-slate-950/85 backdrop-blur-md px-3.5 py-2 rounded-xl border border-slate-800/90 shadow-xl flex flex-wrap items-center justify-between gap-3 text-xs pointer-events-auto">
+        <div
+          className="absolute bottom-3 left-3 right-16 z-[1000] bg-slate-950/85 backdrop-blur-md px-3.5 py-2 rounded-xl border border-slate-800/90 shadow-xl flex flex-wrap items-center justify-between gap-3 text-xs pointer-events-auto"
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-1.5">
               <span className="text-slate-400">Selected Focus:</span>
@@ -727,14 +847,49 @@ export const LeafletCycloneMap: React.FC<LeafletCycloneMapProps> = ({
         </div>
       )}
 
-      {!activeCyclone && emptyStateMessage && (
-        <div className="absolute inset-0 z-[350] flex items-center justify-center pointer-events-none px-6">
-          <div className="max-w-md rounded-2xl border border-slate-700 bg-slate-950/90 backdrop-blur-md px-5 py-4 text-center shadow-2xl">
-            <div className="text-sm font-bold text-white">No active cyclone in the North Indian Ocean</div>
-            <p className="mt-1 text-xs leading-relaxed text-slate-300">{emptyStateMessage}</p>
-            <p className="mt-2 text-[10px] font-medium text-emerald-400">MOSDAC SCORPIO live-status feed</p>
+      {/* Center empty state card with Dismiss button */}
+      {!activeCyclone && emptyStateMessage && !isEmptyStateDismissed && (
+        <div className="absolute inset-0 z-[950] flex items-center justify-center pointer-events-none px-6">
+          <div
+            className="relative max-w-md rounded-2xl border border-slate-700 bg-slate-950/95 backdrop-blur-md px-6 py-5 text-center shadow-2xl pointer-events-auto animate-in fade-in zoom-in-95 duration-150"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {/* Close X button */}
+            <button
+              type="button"
+              onClick={() => setIsEmptyStateDismissed(true)}
+              className="absolute top-3 right-3 p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+              title="Close notification"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="text-sm font-bold text-white pr-6">No active cyclone in the North Indian Ocean</div>
+            <p className="mt-2 text-xs leading-relaxed text-slate-300">{emptyStateMessage}</p>
+            <div className="mt-4 flex items-center justify-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsEmptyStateDismissed(true)}
+                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-xs transition cursor-pointer shadow-md"
+              >
+                Dismiss &amp; Explore Map
+              </button>
+            </div>
+            <p className="mt-2.5 text-[10px] font-medium text-emerald-400">MOSDAC SCORPIO live-status feed</p>
           </div>
         </div>
+      )}
+
+      {/* Discrete bottom pill if user dismissed the empty state message */}
+      {!activeCyclone && emptyStateMessage && isEmptyStateDismissed && (
+        <button
+          type="button"
+          onClick={() => setIsEmptyStateDismissed(false)}
+          className="absolute bottom-3 left-3 z-[1000] flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950/90 hover:bg-slate-900 border border-slate-800 text-slate-300 text-xs shadow-lg backdrop-blur-md transition cursor-pointer pointer-events-auto"
+          title="Click to re-open notification"
+        >
+          <Info className="w-3.5 h-3.5 text-blue-400" />
+          <span>No active storm in live feed</span>
+        </button>
       )}
 
       {/* Actual Leaflet DOM container */}

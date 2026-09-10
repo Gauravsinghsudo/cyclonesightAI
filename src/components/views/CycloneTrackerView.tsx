@@ -25,7 +25,7 @@ export const CycloneTrackerView: React.FC<CycloneTrackerViewProps> = ({
     : null;
   const [filterType, setFilterType] = useState<'all' | 'observed' | 'forecast'>('all');
   const [visibleCycloneIds, setVisibleCycloneIds] = useState<string[]>(() =>
-    selectedCycloneId ? [selectedCycloneId] : cyclones.slice(0, 1).map((cyclone) => cyclone.id)
+    selectedCycloneId ? [selectedCycloneId] : []
   );
   const historicalYearGroups = archiveYearGroups.filter((group) => group.Year !== 'Recent' && group.Cyclonelist.length > 0);
   const [historicalYear, setHistoricalYear] = useState(() => historicalYearGroups[0]?.Year || '');
@@ -49,7 +49,7 @@ export const CycloneTrackerView: React.FC<CycloneTrackerViewProps> = ({
   const visibleCyclones = cyclones.filter((cyclone) => visibleCycloneIds.includes(cyclone.id));
   const mapSelectedCycloneId = visibleCycloneIds.includes(selectedCycloneId || '')
     ? selectedCycloneId
-    : visibleCyclones[0]?.id || null;
+    : null;
 
   const toggleCycloneVisibility = (id: string) => {
     setVisibleCycloneIds((current) => current.includes(id) ? current.filter((currentId) => currentId !== id) : [...current, id]);

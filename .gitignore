@@ -1,4 +1,4 @@
-node_modules/
+~node_modules/
 build/
 dist/
 dev-dist/
@@ -10,3 +10,4 @@ coverage/
 data/users_db.json
 
 .vercel
+node_modules

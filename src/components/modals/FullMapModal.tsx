@@ -21,7 +21,7 @@ export const FullMapModal: React.FC<FullMapModalProps> = ({
   return (
     <div
       id="full-map-modal"
-      className="fixed inset-0 z-[900] isolate flex items-center justify-center bg-black/85 backdrop-blur-md p-2 sm:p-4 animate-in fade-in duration-200"
+      className="fixed inset-0 z-[2000] isolate flex items-center justify-center bg-black/85 backdrop-blur-md p-2 sm:p-4 animate-in fade-in duration-200"
     >
       <div className="relative w-full max-w-6xl h-[92vh] rounded-2xl bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 flex flex-col overflow-hidden">
         {/* Header */}

@@ -1,6 +1,7 @@
 import React from 'react';
-import { X, Bell, AlertTriangle, AlertCircle, CheckCircle2, Trash2 } from 'lucide-react';
+import { X, Bell, AlertTriangle, AlertCircle, CheckCircle2, Trash2, Clock, RotateCcw } from 'lucide-react';
 import { AlertNotification } from '../../types';
+import { getAlertRemainingTime } from '../../data/cycloneData';
 
 interface AlertsModalProps {
   alerts: AlertNotification[];
@@ -8,6 +9,7 @@ interface AlertsModalProps {
   onClose: () => void;
   onMarkAllRead: () => void;
   onClearAll: () => void;
+  onRestoreAlerts?: () => void;
   onSelectCyclone: (id: string) => void;
 }
 
@@ -17,6 +19,7 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
   onClose,
   onMarkAllRead,
   onClearAll,
+  onRestoreAlerts,
   onSelectCyclone,
 }) => {
   if (!isOpen) return null;
@@ -38,7 +41,9 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-white">Cyclone Alerts</h3>
-              <p className="text-xs text-slate-400">{alerts.length} {alerts.length === 1 ? 'advisory' : 'advisories'} in this session</p>
+              <p className="text-xs text-slate-400">
+                {alerts.length} {alerts.length === 1 ? 'advisory' : 'advisories'} • Auto-expires in 7 hours
+              </p>
             </div>
           </div>
           <button
@@ -51,7 +56,18 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
 
         <div className="flex-1 overflow-y-auto py-4 space-y-3">
           {alerts.length === 0 ? (
-            <p className="py-8 text-center text-sm text-slate-400">No alerts to review.</p>
+            <div className="py-8 text-center space-y-3">
+              <p className="text-sm text-slate-400">No alerts to review (alerts auto-delete after 7 hours).</p>
+              {onRestoreAlerts && (
+                <button
+                  onClick={onRestoreAlerts}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-cyan-300 border border-slate-700 transition cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Restore Default Advisories
+                </button>
+              )}
+            </div>
           ) : alerts.map((alert) => (
             <div
               key={alert.id}
@@ -70,7 +86,13 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({
                   )}
                   <span className="text-xs font-bold text-white tracking-tight">{alert.title}</span>
                 </div>
-                <span className="text-[10px] text-slate-400 whitespace-nowrap">{alert.timestamp}</span>
+                <div className="text-right shrink-0">
+                  <span className="text-[10px] text-slate-400 whitespace-nowrap block">{alert.timestamp}</span>
+                  <span className="text-[10px] text-cyan-400 font-mono inline-flex items-center gap-1 mt-0.5">
+                    <Clock className="w-2.5 h-2.5" />
+                    {getAlertRemainingTime(alert.createdAt)}
+                  </span>
+                </div>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed pl-6">{alert.description}</p>
 

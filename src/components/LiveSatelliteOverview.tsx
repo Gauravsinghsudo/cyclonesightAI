@@ -24,7 +24,7 @@ export const LiveSatelliteOverview: React.FC<LiveSatelliteOverviewProps> = ({
   onOpenFullMap,
 }) => {
   const activeCyclone = useMemo(() => {
-    return cyclones.find((c) => c.id === selectedCycloneId) || cyclones[0] || null;
+    return selectedCycloneId ? cyclones.find((c) => c.id === selectedCycloneId) || null : null;
   }, [cyclones, selectedCycloneId]);
 
   return (

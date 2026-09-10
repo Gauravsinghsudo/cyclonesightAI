@@ -74,7 +74,7 @@ export const ImpactRiskMapView: React.FC<ImpactRiskMapViewProps> = ({
           cyclones={cyclones}
           selectedCycloneId={selectedCycloneId}
           onSelectCyclone={onSelectCyclone}
-          height="460px"
+          height="540px"
           showControls={true}
         />
       </div>

@@ -35,8 +35,8 @@ import { AICopilotModal } from './components/modals/AICopilotModal';
 import { HelpModal } from './components/modals/HelpModal';
 import { AuthModal } from './components/modals/AuthModal';
 
-import { INITIAL_CYCLONES, HISTORICAL_MODEL_RECORDS, IMPACT_AREAS, DATA_SOURCES, NOTIFICATIONS } from './data/cycloneData';
-import { CycloneData } from './types';
+import { INITIAL_CYCLONES, HISTORICAL_MODEL_RECORDS, IMPACT_AREAS, DATA_SOURCES, NOTIFICATIONS, ALERT_EXPIRY_MS } from './data/cycloneData';
+import { CycloneData, AlertNotification } from './types';
 import { authService, UserProfile } from './services/authService';
 import {
   getMosdacArchiveYears,
@@ -50,17 +50,34 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<NavItemId>('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [cyclones, setCyclones] = useState<CycloneData[]>(INITIAL_CYCLONES);
-  const [alerts, setAlerts] = useState(NOTIFICATIONS);
+  const [alerts, setAlerts] = useState<AlertNotification[]>(() => {
+    const now = Date.now();
+    try {
+      const saved = localStorage.getItem('cycloneai_alerts');
+      if (saved) {
+        const parsed: AlertNotification[] = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.filter((a) => (now - (a.createdAt || now)) < ALERT_EXPIRY_MS);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load saved alerts:', e);
+    }
+    return NOTIFICATIONS.map((n, i) => ({
+      ...n,
+      createdAt: n.createdAt || (now - (i + 1) * 45 * 60 * 1000),
+    }));
+  });
   const [dataSources] = useState(DATA_SOURCES);
   const [impactAreas] = useState(IMPACT_AREAS);
 
   // MOSDAC SCORPIO Year & Cyclone Archive State
   const [yearGroups, setYearGroups] = useState<MosdacYearGroup[]>([]);
   const [selectedYear, setSelectedYear] = useState<string>('2024');
-  const [selectedCycloneName, setSelectedCycloneName] = useState<string>('DANA');
+  const [selectedCycloneName, setSelectedCycloneName] = useState<string>('');
   const [mosdacAlertText, setMosdacAlertText] = useState<string>('No Cyclone in Indian Ocean');
 
-  const [selectedCycloneId, setSelectedCycloneId] = useState<string | null>('MOSDAC-DANA');
+  const [selectedCycloneId, setSelectedCycloneId] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState('23 Oct 2024, 00:00 UTC (INSAT-3DS)');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -201,12 +218,12 @@ export default function App() {
   );
 
   const activeDashboardCyclone = useMemo(
-    () => activeDashboardCyclones.find((cyclone) => cyclone.id === selectedCycloneId) || activeDashboardCyclones[0] || null,
+    () => (selectedCycloneId ? activeDashboardCyclones.find((cyclone) => cyclone.id === selectedCycloneId) || null : null),
     [activeDashboardCyclones, selectedCycloneId]
   );
 
   const activeSelectedCyclone = useMemo(() => {
-    return cyclones.find((c) => c.id === selectedCycloneId) || cyclones[0] || null;
+    return selectedCycloneId ? cyclones.find((c) => c.id === selectedCycloneId) || null : null;
   }, [cyclones, selectedCycloneId]);
 
   const unreadAlertsCount = useMemo(() => {
@@ -243,6 +260,26 @@ export default function App() {
     setCycloneDetailModalOpen(true);
   };
 
+  // Periodic background prune for alerts older than 7 hours
+  useEffect(() => {
+    const pruneExpiredAlerts = () => {
+      const now = Date.now();
+      setAlerts((prev) => {
+        const active = prev.filter((a) => (now - (a.createdAt || now)) < ALERT_EXPIRY_MS);
+        return active.length !== prev.length ? active : prev;
+      });
+    };
+
+    pruneExpiredAlerts();
+    const interval = setInterval(pruneExpiredAlerts, 30_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Synchronize alerts with localStorage
+  useEffect(() => {
+    localStorage.setItem('cycloneai_alerts', JSON.stringify(alerts));
+  }, [alerts]);
+
   const handleMarkAllAlertsRead = () => {
     setAlerts((prev) => prev.map((a) => ({ ...a, isRead: true })));
   };
@@ -253,6 +290,17 @@ export default function App() {
 
   const handleClearAlerts = () => {
     setAlerts([]);
+  };
+
+  const handleRestoreAlerts = () => {
+    const now = Date.now();
+    const restored = NOTIFICATIONS.map((n, idx) => ({
+      ...n,
+      id: `${n.id}-${now}`,
+      createdAt: now - (idx + 1) * 45 * 60 * 1000,
+      isRead: false,
+    }));
+    setAlerts(restored);
   };
 
   // Switch sidebar items
@@ -300,6 +348,7 @@ export default function App() {
           onOpenDataSources={() => setDataSourcesModalOpen(true)}
           mobileOpen={mobileSidebarOpen}
           onCloseMobile={() => setMobileSidebarOpen(false)}
+          dataSources={dataSources}
         />
 
         {/* Main Content Area */}
@@ -330,8 +379,8 @@ export default function App() {
                   activeCycloneCount={activeDashboardCyclones.length}
                   alertsCount={unreadAlertsCount}
                   riRiskCount={1}
-                  dataSourcesOnline={9}
-                  totalDataSources={9}
+                  dataSourcesOnline={dataSources.filter((d) => d.status === 'online').length}
+                  totalDataSources={dataSources.length}
                   onViewCyclones={() => handleOpenCycloneDetails(activeDashboardCyclone?.id)}
                   onViewAlerts={() => setAlertsModalOpen(true)}
                   onViewRI={() => handleOpenCycloneDetails(activeDashboardCyclone?.id)}
@@ -433,7 +482,12 @@ export default function App() {
             )}
 
             {activeTab === 'alerts-notifications' && (
-              <AlertsNotificationsView alerts={alerts} onDismissAlert={handleDismissAlert} onClearAlerts={handleClearAlerts} />
+              <AlertsNotificationsView
+                alerts={alerts}
+                onDismissAlert={handleDismissAlert}
+                onClearAlerts={handleClearAlerts}
+                onRestoreAlerts={handleRestoreAlerts}
+              />
             )}
 
             {activeTab === 'historical-cyclones' && (
@@ -483,6 +537,7 @@ export default function App() {
         onClose={() => setAlertsModalOpen(false)}
         onMarkAllRead={handleMarkAllAlertsRead}
         onClearAll={handleClearAlerts}
+        onRestoreAlerts={handleRestoreAlerts}
         onSelectCyclone={handleSelectCyclone}
       />
 

@@ -86,6 +86,7 @@ export const InteractiveCycloneMap: React.FC<InteractiveCycloneMapProps> = ({
   const [showLatLonGrid, setShowLatLonGrid] = useState(true);
   const [satelliteColorMode, setSatelliteColorMode] = useState<'TIR1' | 'WV' | 'VIS' | 'TCHCP'>('TIR1');
   const [animateVortex, setAnimateVortex] = useState(true);
+  const [basemapStyle, setBasemapStyle] = useState<'streets' | 'satellite'>('streets');
 
   // Zoom and Pan
   const [zoom, setZoom] = useState(1);
@@ -329,6 +330,34 @@ export const InteractiveCycloneMap: React.FC<InteractiveCycloneMapProps> = ({
               </button>
             </div>
 
+            {/* Basemap Switcher (Normal Map vs Satellite) */}
+            <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-lg p-0.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => setBasemapStyle('streets')}
+                className={`px-2 py-0.5 rounded font-medium transition cursor-pointer ${
+                  basemapStyle === 'streets'
+                    ? 'bg-blue-600 text-white font-semibold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Normal Map View (OpenStreetMap)"
+              >
+                Normal Map
+              </button>
+              <button
+                type="button"
+                onClick={() => setBasemapStyle('satellite')}
+                className={`px-2 py-0.5 rounded font-medium transition cursor-pointer ${
+                  basemapStyle === 'satellite'
+                    ? 'bg-blue-600 text-white font-semibold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Satellite Earth View"
+              >
+                Satellite
+              </button>
+            </div>
+
             {/* Feature Layers */}
             <div className="flex items-center gap-1">
               <button
@@ -459,18 +488,55 @@ export const InteractiveCycloneMap: React.FC<InteractiveCycloneMapProps> = ({
           </defs>
 
           {/* 1. Base Ocean Canvas */}
-          <rect width={svgWidth} height={svgHeight} fill="url(#oceanGrad)" />
+          <rect width={svgWidth} height={svgHeight} fill={basemapStyle === 'satellite' ? '#040d1a' : '#aad3df'} />
 
-          {/* 2. Lat / Lon Grid Lines & Coordinates */}
+          {/* 2. Real Geographic Map Tiles in Background (Normal Map / Satellite) */}
+          <g id="real-geographic-map-tiles" opacity={basemapStyle === 'satellite' ? 0.95 : 1.0}>
+            {[
+              { x: 21, y: 12 }, { x: 22, y: 12 }, { x: 23, y: 12 }, { x: 24, y: 12 },
+              { x: 21, y: 13 }, { x: 22, y: 13 }, { x: 23, y: 13 }, { x: 24, y: 13 },
+              { x: 21, y: 14 }, { x: 22, y: 14 }, { x: 23, y: 14 }, { x: 24, y: 14 },
+              { x: 21, y: 15 }, { x: 22, y: 15 }, { x: 23, y: 15 }, { x: 24, y: 15 },
+            ].map((t) => {
+              const lon1 = (t.x / 32) * 360 - 180;
+              const n1 = Math.PI - (2 * Math.PI * t.y) / 32;
+              const lat1 = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n1) - Math.exp(-n1)));
+
+              const lon2 = ((t.x + 1) / 32) * 360 - 180;
+              const n2 = Math.PI - (2 * Math.PI * (t.y + 1)) / 32;
+              const lat2 = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n2) - Math.exp(-n2)));
+
+              const pTopLeft = project(lon1, lat1);
+              const pBottomRight = project(lon2, lat2);
+
+              const tileUrl = basemapStyle === 'satellite'
+                ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/5/${t.y}/${t.x}`
+                : `https://tile.openstreetmap.org/5/${t.x}/${t.y}.png`;
+
+              return (
+                <image
+                  key={`tile-${basemapStyle}-${t.x}-${t.y}`}
+                  href={tileUrl}
+                  x={pTopLeft.x}
+                  y={pTopLeft.y}
+                  width={pBottomRight.x - pTopLeft.x}
+                  height={pBottomRight.y - pTopLeft.y}
+                  preserveAspectRatio="none"
+                />
+              );
+            })}
+          </g>
+
+          {/* 3. Lat / Lon Grid Lines & Coordinates */}
           {showLatLonGrid && (
-            <g className="opacity-40 select-none">
+            <g className="opacity-50 select-none">
               {/* Latitude lines (every 5 degrees from 5N to 25N) */}
               {[5, 10, 15, 20, 25].map((lat) => {
                 const { y } = project(mapBounds.minLon, lat);
                 return (
                   <g key={`lat-${lat}`}>
-                    <line x1="45" y1={y} x2={svgWidth - 45} y2={y} stroke="#334155" strokeDasharray="3 4" strokeWidth="1" />
-                    <text x="18" y={y + 4} fill="#64748b" fontSize="10" fontFamily="monospace">
+                    <line x1="45" y1={y} x2={svgWidth - 45} y2={y} stroke={basemapStyle === 'satellite' ? '#475569' : '#64748b'} strokeDasharray="3 4" strokeWidth="1" />
+                    <text x="18" y={y + 4} fill={basemapStyle === 'satellite' ? '#94a3b8' : '#334155'} fontSize="10" fontFamily="monospace" fontWeight="bold">
                       {lat}°N
                     </text>
                   </g>
@@ -482,8 +548,8 @@ export const InteractiveCycloneMap: React.FC<InteractiveCycloneMapProps> = ({
                 const { x } = project(lng, mapBounds.minLat);
                 return (
                   <g key={`lng-${lng}`}>
-                    <line x1={x} y1="35" x2={x} y2={svgHeight - 40} stroke="#334155" strokeDasharray="3 4" strokeWidth="1" />
-                    <text x={x - 10} y={svgHeight - 20} fill="#64748b" fontSize="10" fontFamily="monospace">
+                    <line x1={x} y1="35" x2={x} y2={svgHeight - 40} stroke={basemapStyle === 'satellite' ? '#475569' : '#64748b'} strokeDasharray="3 4" strokeWidth="1" />
+                    <text x={x - 10} y={svgHeight - 20} fill={basemapStyle === 'satellite' ? '#94a3b8' : '#334155'} fontSize="10" fontFamily="monospace" fontWeight="bold">
                       {lng}°E
                     </text>
                   </g>
@@ -492,54 +558,10 @@ export const InteractiveCycloneMap: React.FC<InteractiveCycloneMapProps> = ({
             </g>
           )}
 
-          {/* 3. Ocean Thermal Heat Layer (TCHCP) if active */}
+          {/* 4. Ocean Thermal Heat Layer (TCHCP) if active */}
           {satelliteColorMode === 'TCHCP' && showSatelliteIR && (
             <circle cx={svgWidth * 0.65} cy={svgHeight * 0.45} r={280} fill="url(#tchcpOceanHeat)" />
           )}
-
-          {/* 4. Accurate Geopolitical Landmass: Indian Subcontinent, Bay of Bengal, Arabian Sea */}
-          <g id="landmass-subcontinent">
-            {/* Pakistan & NW border to Gujarat & Western Ghats down to Kanyakumari, up Eastern Coast to Bengal & Bangladesh */}
-            <path
-              d="
-                M 80,0 
-                L 140,80 L 190,140 L 220,180 
-                L 240,210 L 280,240 
-                L 260,260 L 295,290 L 320,330 L 330,380 L 340,430 L 370,480 L 385,510 
-                L 410,480 L 435,440 L 450,400 L 485,340 L 530,280 L 570,230 L 615,190 L 650,170 
-                L 690,165 L 730,175 L 740,220 L 760,260 L 780,320 L 800,410 L 830,500 L 980,550 
-                L 980,0 Z
-              "
-              fill="#0f172a"
-              stroke="#334155"
-              strokeWidth="2.5"
-            />
-
-            {/* Saurashtra & Kutch Peninsula (Gujarat) */}
-            <path
-              d="M 230,210 C 210,230 200,270 230,280 C 255,290 280,275 270,245 Z"
-              fill="#0f172a"
-              stroke="#334155"
-              strokeWidth="2"
-            />
-
-            {/* Sri Lanka */}
-            <ellipse cx="430" cy="510" rx="24" ry="38" fill="#0f172a" stroke="#334155" strokeWidth="2" />
-
-            {/* Andaman & Nicobar Archipelago */}
-            <g fill="#1e293b" stroke="#475569" strokeWidth="1.5">
-              <ellipse cx="780" cy="380" rx="7" ry="24" />
-              <ellipse cx="785" cy="430" rx="6" ry="18" />
-              <ellipse cx="795" cy="480" rx="8" ry="20" />
-            </g>
-
-            {/* Lakshadweep & Maldives */}
-            <g fill="#1e293b" stroke="#475569" strokeWidth="1.2">
-              <circle cx="310" cy="460" r="4" />
-              <circle cx="315" cy="485" r="4" />
-              <circle cx="320" cy="530" r="5" />
-            </g>
-          </g>
 
           {/* 5. Storm Surge Coastal Hazard Overlay along Threatened Coastline */}
           {showSurgeHazard && (

@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
-import { Bell, AlertTriangle, ShieldCheck, Radio, Check, Info, ExternalLink, Trash2 } from 'lucide-react';
+import { Bell, AlertTriangle, ShieldCheck, Radio, Check, Info, ExternalLink, Trash2, Clock, RotateCcw } from 'lucide-react';
 import { AlertNotification } from '../../types';
+import { getAlertRemainingTime } from '../../data/cycloneData';
 
 interface AlertsNotificationsViewProps {
   alerts: AlertNotification[];
   onDismissAlert?: (id: string) => void;
   onClearAlerts?: () => void;
+  onRestoreAlerts?: () => void;
 }
 
 export const AlertsNotificationsView: React.FC<AlertsNotificationsViewProps> = ({
   alerts,
   onDismissAlert,
   onClearAlerts,
+  onRestoreAlerts,
 }) => {
   const [filterSeverity, setFilterSeverity] = useState<'all' | 'urgent' | 'warning'>('all');
 
@@ -61,12 +64,21 @@ export const AlertsNotificationsView: React.FC<AlertsNotificationsViewProps> = (
               Official Warning &amp; Meteorological Bulletin Center
             </h1>
             <p className="text-xs text-slate-400 mt-0.5">
-              Automated MOSDAC SCORPIO alerts, IMD 4-stage cyclone warning system &amp; evacuation directives
+              Automated MOSDAC SCORPIO alerts, IMD 4-stage cyclone warning system &amp; evacuation directives • Auto-purged after 7 hours
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {alerts.length === 0 && onRestoreAlerts && (
+            <button
+              onClick={onRestoreAlerts}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 transition cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Restore alerts
+            </button>
+          )}
           <button
             onClick={() => setFilterSeverity('all')}
             className={`px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition ${
@@ -130,7 +142,20 @@ export const AlertsNotificationsView: React.FC<AlertsNotificationsViewProps> = (
         </h2>
 
         <div className="space-y-3">
-          {filteredAlerts.length === 0 && <p className="py-6 text-center text-xs text-slate-400">No live alerts match this filter.</p>}
+          {filteredAlerts.length === 0 && (
+            <div className="py-8 text-center space-y-3">
+              <p className="text-xs text-slate-400">No active alerts (alerts are automatically deleted after 7 hours).</p>
+              {onRestoreAlerts && (
+                <button
+                  onClick={onRestoreAlerts}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-cyan-300 border border-slate-700 transition cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  Restore Default Advisories
+                </button>
+              )}
+            </div>
+          )}
           {filteredAlerts.map((alert) => (
             <div
               key={alert.id}
@@ -141,7 +166,7 @@ export const AlertsNotificationsView: React.FC<AlertsNotificationsViewProps> = (
               }`}
             >
               <div className="space-y-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <span
                     className={`w-2 h-2 rounded-full ${
                       alert.severity === 'urgent' ? 'bg-rose-500 animate-ping' : 'bg-amber-500'
@@ -149,6 +174,10 @@ export const AlertsNotificationsView: React.FC<AlertsNotificationsViewProps> = (
                   />
                   <h3 className="font-bold text-white text-xs sm:text-sm">{alert.title}</h3>
                   <span className="text-[10px] text-slate-400 font-mono">({alert.timestamp})</span>
+                  <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950/70 text-cyan-300 border border-cyan-800/50">
+                    <Clock className="w-2.5 h-2.5 text-cyan-400" />
+                    {getAlertRemainingTime(alert.createdAt)}
+                  </span>
                 </div>
                 <p className="text-xs text-slate-300">{alert.description}</p>
               </div>

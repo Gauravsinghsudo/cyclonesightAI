@@ -69,7 +69,7 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
 4. **Andaman & Nicobar (Moderate)**: Squally gale winds up to 65 km/h from CYC-02B.`;
       } else {
         aiReply = `**Cyclone Intelligence Synthesis:**
-Both cyclonic systems (CYC-01A & CYC-02B) remain under continuous 10-minute geostationary radar/satellite tracking. Convective core consolidation on CYC-01A shows tightening inner core radius of maximum wind (RMW) down to 22 km. All 12 automated telemetry sources are transmitting normally with 0% packet loss.`;
+Both cyclonic systems (CYC-01A & CYC-02B) remain under continuous 10-minute geostationary radar/satellite tracking. Convective core consolidation on CYC-01A shows tightening inner core radius of maximum wind (RMW) down to 22 km. All 9 automated telemetry sources are transmitting normally with 0% packet loss.`;
       }
 
       setMessages((prev) => [

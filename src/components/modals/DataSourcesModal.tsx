@@ -15,6 +15,8 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  const onlineCount = dataSources.filter((ds) => ds.status === 'online').length;
+
   return (
     <div 
       id="datasources-modal-overlay"
@@ -32,7 +34,7 @@ export const DataSourcesModal: React.FC<DataSourcesModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-white">Meteorological Data Feeds</h3>
-              <p className="text-xs text-slate-400">12 / 12 Feeds Online & Ingesting Telemetry</p>
+              <p className="text-xs text-slate-400">{onlineCount} / {dataSources.length} Feeds Online & Ingesting Telemetry</p>
             </div>
           </div>
           <button

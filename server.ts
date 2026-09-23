@@ -969,8 +969,8 @@ app.post('/api/auth/signup', authRateLimit, async (req, res) => {
   if (!name.trim() || name.trim().length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) || email.trim().length > 320) {
     return res.status(400).json({ error: 'Enter a valid name and email address.' });
   }
-  if (password.length < 12 || password.length > 1024) {
-    return res.status(400).json({ error: 'Password must be between 12 and 1,024 characters.' });
+  if (password.length < 6 || password.length > 1024) {
+    return res.status(400).json({ error: 'Password must be between 6 and 1,024 characters.' });
   }
   if (organization !== undefined && (typeof organization !== 'string' || organization.length > 255)) {
     return res.status(400).json({ error: 'Organization is not valid.' });

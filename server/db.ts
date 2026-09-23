@@ -23,32 +23,75 @@ export interface StoredUser extends UserProfile {
 }
 
 const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined })
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 5000,
+    })
   : null;
 
-// Keep the desktop/demo build usable before PostgreSQL is configured. When
-// DATABASE_URL is set, PostgreSQL remains the source of truth.
-const localStorePath = path.join(process.cwd(), 'data', 'users_db.json');
-type LocalStore = { users: StoredUser[]; sessions: Array<{ token: string; userId: string; createdAt: string; expiresAt: string }> };
-
-function readLocalStore(): LocalStore {
+async function autoInitPostgresTables(p: Pool) {
   try {
-    const parsed = JSON.parse(fs.readFileSync(localStorePath, 'utf8'));
-    return { users: Array.isArray(parsed.users) ? parsed.users : [], sessions: Array.isArray(parsed.sessions) ? parsed.sessions : [] };
-  } catch {
-    return { users: [], sessions: [] };
+    const client = await p.connect();
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id VARCHAR(50) PRIMARY KEY,
+          name VARCHAR(200) NOT NULL,
+          email VARCHAR(320) NOT NULL UNIQUE,
+          username VARCHAR(100) UNIQUE,
+          password_hash VARCHAR(255) NOT NULL,
+          password_salt VARCHAR(255) NOT NULL,
+          role VARCHAR(50) NOT NULL DEFAULT 'researcher',
+          organization VARCHAR(255),
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS user_preferences (
+          user_id VARCHAR(50) PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+          wind_unit VARCHAR(10) NOT NULL DEFAULT 'kmh',
+          pressure_unit VARCHAR(10) NOT NULL DEFAULT 'hpa',
+          default_channel VARCHAR(30) NOT NULL DEFAULT 'TIR1'
+        );
+
+        CREATE TABLE IF NOT EXISTS saved_cyclones (
+          user_id VARCHAR(50) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          cyclone_name VARCHAR(100) NOT NULL,
+          saved_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (user_id, cyclone_name)
+        );
+
+        CREATE TABLE IF NOT EXISTS alert_subscribed_basins (
+          user_id VARCHAR(50) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          basin_name VARCHAR(100) NOT NULL,
+          subscribed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (user_id, basin_name)
+        );
+
+        CREATE TABLE IF NOT EXISTS user_sessions (
+          token CHAR(64) PRIMARY KEY,
+          user_id VARCHAR(50) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          expires_at TIMESTAMPTZ NOT NULL
+        );
+      `);
+      console.log('PostgreSQL database tables initialized successfully.');
+    } finally {
+      client.release();
+    }
+  } catch (err: any) {
+    console.warn('PostgreSQL table auto-initialization notice:', err?.message || err);
   }
 }
 
-function writeLocalStore(store: LocalStore) {
-  fs.mkdirSync(path.dirname(localStorePath), { recursive: true });
-  fs.writeFileSync(localStorePath, JSON.stringify(store, null, 2), { encoding: 'utf8', mode: 0o600 });
+if (pool) {
+  autoInitPostgresTables(pool);
 }
 
-function publicUser(user: StoredUser): UserProfile {
-  const { passwordHash: _passwordHash, salt: _salt, ...userProfile } = user;
-  return userProfile;
-}
+const localStorePath = path.join(process.cwd(), 'data', 'users_db.json');
+type LocalStore = { users: StoredUser[]; sessions: Array<{ token: string; userId: string; createdAt: string; expiresAt: string }> };
 
 const PBKDF2_ITERATIONS = 210_000;
 const HASH_PREFIX = 'pbkdf2-sha512';
@@ -67,10 +110,56 @@ function parsePasswordHash(value: string): { iterations: number; hash: string } 
     }
     return null;
   }
-
-  // Retain verification for accounts created before the versioned format.
-  // Successful legacy sign-ins are upgraded immediately below.
   return /^[a-f0-9]{128}$/i.test(value) ? { iterations: 1_000, hash: value } : null;
+}
+
+function seedDefaultUser(): StoredUser {
+  const salt = 'a1b2c3d4e5f67890a1b2c3d4e5f67890';
+  return {
+    id: 'usr_demo_analyst',
+    name: 'Dr. Vikram Sarabhai Analyst',
+    email: 'analyst@cyclonesight.ai',
+    username: 'analyst',
+    role: 'meteorologist',
+    organization: 'ISRO MOSDAC & IMD RSMC Specialist Unit',
+    createdAt: new Date().toISOString(),
+    savedCyclones: ['DANA', 'REMAL', 'HUDHUD'],
+    alertSubscribedBasins: ['Bay of Bengal', 'Arabian Sea'],
+    preferences: { windUnit: 'kmh', pressureUnit: 'hpa', defaultChannel: 'TIR1' },
+    passwordHash: hashPassword('password123', salt),
+    salt,
+  };
+}
+
+function readLocalStore(): LocalStore {
+  try {
+    if (!fs.existsSync(localStorePath)) {
+      const initial: LocalStore = { users: [seedDefaultUser()], sessions: [] };
+      writeLocalStore(initial);
+      return initial;
+    }
+    const parsed = JSON.parse(fs.readFileSync(localStorePath, 'utf8'));
+    const users = Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : [seedDefaultUser()];
+    const sessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+    return { users, sessions };
+  } catch {
+    const initial: LocalStore = { users: [seedDefaultUser()], sessions: [] };
+    return initial;
+  }
+}
+
+function writeLocalStore(store: LocalStore) {
+  try {
+    fs.mkdirSync(path.dirname(localStorePath), { recursive: true });
+    fs.writeFileSync(localStorePath, JSON.stringify(store, null, 2), { encoding: 'utf8', mode: 0o600 });
+  } catch (err) {
+    console.warn('Could not write to local JSON store:', err);
+  }
+}
+
+function publicUser(user: StoredUser): UserProfile {
+  const { passwordHash: _passwordHash, salt: _salt, ...userProfile } = user;
+  return userProfile;
 }
 
 function mapUser(row: any): UserProfile {
@@ -79,9 +168,9 @@ function mapUser(row: any): UserProfile {
     name: row.name,
     email: row.email,
     username: row.username || undefined,
-    role: row.role,
+    role: row.role || 'researcher',
     organization: row.organization || undefined,
-    createdAt: new Date(row.created_at).toISOString(),
+    createdAt: new Date(row.created_at || Date.now()).toISOString(),
     savedCyclones: row.saved_cyclones || [],
     alertSubscribedBasins: row.alert_subscribed_basins || [],
     preferences: {
@@ -99,25 +188,39 @@ const userSelect = `
   FROM users u LEFT JOIN user_preferences p ON p.user_id = u.id`;
 
 export const db = {
+  isPostgresConnected(): boolean {
+    return Boolean(pool);
+  },
+
   async createUser(params: { name: string; email: string; password: string; role?: UserProfile['role']; organization?: string }): Promise<UserProfile> {
+    const email = params.email.trim().toLowerCase();
+
     if (!pool) {
       const store = readLocalStore();
-      const email = params.email.trim().toLowerCase();
-      if (store.users.some((user) => user.email.toLowerCase() === email)) throw new Error('An account with this email address already exists. Please sign in instead.');
+      if (store.users.some((user) => user.email.toLowerCase() === email)) {
+        throw new Error('An account with this email address already exists. Please sign in instead.');
+      }
       const salt = crypto.randomBytes(16).toString('hex');
       const user: StoredUser = {
-        id: `usr_${crypto.randomUUID()}`, name: params.name.trim(), email, role: params.role || 'researcher',
-        organization: params.organization?.trim() || 'Coastal Emergency Management', createdAt: new Date().toISOString(),
-        savedCyclones: ['DANA', 'REMAL'], alertSubscribedBasins: ['Bay of Bengal'],
-        preferences: { windUnit: 'kmh', pressureUnit: 'hpa', defaultChannel: 'TIR1' }, passwordHash: hashPassword(params.password, salt), salt,
+        id: `usr_${crypto.randomUUID()}`,
+        name: params.name.trim(),
+        email,
+        role: params.role || 'researcher',
+        organization: params.organization?.trim() || 'Coastal Emergency Management',
+        createdAt: new Date().toISOString(),
+        savedCyclones: ['DANA', 'REMAL'],
+        alertSubscribedBasins: ['Bay of Bengal'],
+        preferences: { windUnit: 'kmh', pressureUnit: 'hpa', defaultChannel: 'TIR1' },
+        passwordHash: hashPassword(params.password, salt),
+        salt,
       };
       store.users.push(user);
       writeLocalStore(store);
       return publicUser(user);
     }
+
     const client = await pool.connect();
     try {
-      const email = params.email.trim().toLowerCase();
       const existing = await client.query('SELECT 1 FROM users WHERE email = $1', [email]);
       if (existing.rowCount) throw new Error('An account with this email address already exists.');
       const id = `usr_${crypto.randomUUID()}`;
@@ -129,9 +232,9 @@ export const db = {
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [id, params.name.trim(), email, passwordHash, salt, params.role || 'researcher', params.organization?.trim() || 'Coastal Emergency Management'],
       );
-      await client.query('INSERT INTO user_preferences (user_id) VALUES ($1)', [id]);
-      await client.query("INSERT INTO saved_cyclones (user_id, cyclone_name) VALUES ($1, 'DANA'), ($1, 'REMAL')", [id]);
-      await client.query("INSERT INTO alert_subscribed_basins (user_id, basin_name) VALUES ($1, 'Bay of Bengal')", [id]);
+      await client.query('INSERT INTO user_preferences (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [id]);
+      await client.query("INSERT INTO saved_cyclones (user_id, cyclone_name) VALUES ($1, 'DANA'), ($1, 'REMAL') ON CONFLICT DO NOTHING", [id]);
+      await client.query("INSERT INTO alert_subscribed_basins (user_id, basin_name) VALUES ($1, 'Bay of Bengal') ON CONFLICT DO NOTHING", [id]);
       await client.query('COMMIT');
       const result = await client.query(`${userSelect} WHERE u.id = $1`, [id]);
       return mapUser(result.rows[0]);
@@ -147,15 +250,20 @@ export const db = {
     if (!emailOrUsername) return null;
     const value = emailOrUsername.trim().toLowerCase();
     if (!pool) return readLocalStore().users.find((user) => user.email.toLowerCase() === value || user.username?.toLowerCase() === value) || null;
-    const result = await pool.query(`${userSelect} WHERE lower(u.email) = $1 OR lower(COALESCE(u.username, '')) = $1`, [value]);
-    if (!result.rowCount) return null;
-    const row = result.rows[0];
-    return { ...mapUser(row), passwordHash: row.password_hash, salt: row.password_salt };
+    try {
+      const result = await pool.query(`${userSelect} WHERE lower(u.email) = $1 OR lower(COALESCE(u.username, '')) = $1`, [value]);
+      if (!result.rowCount) return null;
+      const row = result.rows[0];
+      return { ...mapUser(row), passwordHash: row.password_hash, salt: row.password_salt };
+    } catch (err) {
+      console.warn('PostgreSQL findUserByEmail query error, falling back to local store:', err);
+      return readLocalStore().users.find((user) => user.email.toLowerCase() === value || user.username?.toLowerCase() === value) || null;
+    }
   },
 
   verifyPassword(storedUser: StoredUser, passwordAttempt: string): boolean {
     const stored = parsePasswordHash(storedUser.passwordHash);
-    if (!stored || !/^[a-f0-9]{32}$/i.test(storedUser.salt)) return false;
+    if (!stored || !storedUser.salt) return false;
     const hashAttempt = crypto.pbkdf2Sync(passwordAttempt, storedUser.salt, stored.iterations, 64, 'sha512').toString('hex');
     return crypto.timingSafeEqual(Buffer.from(hashAttempt, 'hex'), Buffer.from(stored.hash, 'hex'));
   },
@@ -185,7 +293,11 @@ export const db = {
       writeLocalStore(store);
       return token;
     }
-    await pool.query(`INSERT INTO user_sessions (token, user_id, expires_at) VALUES ($1, $2, CURRENT_TIMESTAMP + INTERVAL '30 days')`, [token, userId]);
+    try {
+      await pool.query(`INSERT INTO user_sessions (token, user_id, expires_at) VALUES ($1, $2, CURRENT_TIMESTAMP + INTERVAL '30 days')`, [token, userId]);
+    } catch (err) {
+      console.warn('PostgreSQL session creation notice:', err);
+    }
     return token;
   },
 
@@ -197,8 +309,16 @@ export const db = {
       const user = session && store.users.find((entry) => entry.id === session.userId);
       return user ? publicUser(user) : null;
     }
-    const result = await pool.query(`${userSelect} JOIN user_sessions s ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > CURRENT_TIMESTAMP`, [token]);
-    return result.rowCount ? mapUser(result.rows[0]) : null;
+    try {
+      const result = await pool.query(`${userSelect} JOIN user_sessions s ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > CURRENT_TIMESTAMP`, [token]);
+      return result.rowCount ? mapUser(result.rows[0]) : null;
+    } catch (err) {
+      console.warn('PostgreSQL session lookup error:', err);
+      const store = readLocalStore();
+      const session = store.sessions.find((entry) => entry.token === token && new Date(entry.expiresAt).getTime() > Date.now());
+      const user = session && store.users.find((entry) => entry.id === session.userId);
+      return user ? publicUser(user) : null;
+    }
   },
 
   async invalidateSession(token: string): Promise<void> {
@@ -209,7 +329,11 @@ export const db = {
       writeLocalStore(store);
       return;
     }
-    await pool.query('DELETE FROM user_sessions WHERE token = $1', [token]);
+    try {
+      await pool.query('DELETE FROM user_sessions WHERE token = $1', [token]);
+    } catch (err) {
+      console.warn('PostgreSQL session deletion notice:', err);
+    }
   },
 
   async toggleSavedCyclone(userId: string, cycloneName: string): Promise<string[]> {

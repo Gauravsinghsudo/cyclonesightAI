@@ -986,10 +986,10 @@ app.post('/api/auth/signup', authRateLimit, async (req, res) => {
     return res.status(201).json({ user });
   } catch (err: any) {
     if (String(err?.message).includes('already exists')) {
-      return res.status(409).json({ error: 'An account with this email address already exists.' });
+      return res.status(409).json({ error: 'An account with this email address already exists. Please sign in instead.' });
     }
     console.error('Signup failed:', err);
-    return res.status(500).json({ error: 'Could not create the account.' });
+    return res.status(500).json({ error: err?.message || 'Could not create the account.' });
   }
 });
 

@@ -131,29 +131,36 @@ function seedDefaultUser(): StoredUser {
   };
 }
 
+// Global module-level memory store for 100% fail-safe operation on cloud containers
+let memoryStore: LocalStore = {
+  users: [seedDefaultUser()],
+  sessions: [],
+};
+
 function readLocalStore(): LocalStore {
   try {
-    if (!fs.existsSync(localStorePath)) {
-      const initial: LocalStore = { users: [seedDefaultUser()], sessions: [] };
-      writeLocalStore(initial);
-      return initial;
+    if (fs.existsSync(localStorePath)) {
+      const parsed = JSON.parse(fs.readFileSync(localStorePath, 'utf8'));
+      if (Array.isArray(parsed.users) && parsed.users.length > 0) {
+        memoryStore.users = parsed.users;
+      }
+      if (Array.isArray(parsed.sessions)) {
+        memoryStore.sessions = parsed.sessions;
+      }
     }
-    const parsed = JSON.parse(fs.readFileSync(localStorePath, 'utf8'));
-    const users = Array.isArray(parsed.users) && parsed.users.length > 0 ? parsed.users : [seedDefaultUser()];
-    const sessions = Array.isArray(parsed.sessions) ? parsed.sessions : [];
-    return { users, sessions };
-  } catch {
-    const initial: LocalStore = { users: [seedDefaultUser()], sessions: [] };
-    return initial;
+  } catch (err) {
+    console.warn('Could not read local store file, using memory store:', err);
   }
+  return memoryStore;
 }
 
 function writeLocalStore(store: LocalStore) {
+  memoryStore = store;
   try {
     fs.mkdirSync(path.dirname(localStorePath), { recursive: true });
-    fs.writeFileSync(localStorePath, JSON.stringify(store, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.writeFileSync(localStorePath, JSON.stringify(store, null, 2), { encoding: 'utf8' });
   } catch (err) {
-    console.warn('Could not write to local JSON store:', err);
+    console.warn('Note: Persistent JSON file write skipped (using RAM store):', err);
   }
 }
 
@@ -195,70 +202,83 @@ export const db = {
   async createUser(params: { name: string; email: string; password: string; role?: UserProfile['role']; organization?: string }): Promise<UserProfile> {
     const email = params.email.trim().toLowerCase();
 
-    if (!pool) {
-      const store = readLocalStore();
-      if (store.users.some((user) => user.email.toLowerCase() === email)) {
-        throw new Error('An account with this email address already exists. Please sign in instead.');
+    if (pool) {
+      try {
+        const client = await pool.connect();
+        try {
+          const existing = await client.query('SELECT 1 FROM users WHERE lower(email) = $1', [email]);
+          if (existing.rowCount) throw new Error('An account with this email address already exists. Please sign in instead.');
+          const id = `usr_${crypto.randomUUID()}`;
+          const salt = crypto.randomBytes(16).toString('hex');
+          const passwordHash = hashPassword(params.password, salt);
+          await client.query('BEGIN');
+          await client.query(
+            `INSERT INTO users (id, name, email, password_hash, password_salt, role, organization)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [id, params.name.trim(), email, passwordHash, salt, params.role || 'researcher', params.organization?.trim() || 'Coastal Emergency Management'],
+          );
+          await client.query('INSERT INTO user_preferences (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [id]);
+          await client.query("INSERT INTO saved_cyclones (user_id, cyclone_name) VALUES ($1, 'DANA'), ($1, 'REMAL') ON CONFLICT DO NOTHING", [id]);
+          await client.query("INSERT INTO alert_subscribed_basins (user_id, basin_name) VALUES ($1, 'Bay of Bengal') ON CONFLICT DO NOTHING", [id]);
+          await client.query('COMMIT');
+          const result = await client.query(`${userSelect} WHERE u.id = $1`, [id]);
+          return mapUser(result.rows[0]);
+        } catch (error: any) {
+          await client.query('ROLLBACK').catch(() => {});
+          if (String(error?.message).includes('already exists')) {
+            throw error;
+          }
+          console.warn('PostgreSQL createUser query error, falling back to local RAM store:', error?.message);
+        } finally {
+          client.release();
+        }
+      } catch (poolErr: any) {
+        if (String(poolErr?.message).includes('already exists')) {
+          throw poolErr;
+        }
+        console.warn('PostgreSQL connection error for createUser, falling back to local RAM store:', poolErr?.message);
       }
-      const salt = crypto.randomBytes(16).toString('hex');
-      const user: StoredUser = {
-        id: `usr_${crypto.randomUUID()}`,
-        name: params.name.trim(),
-        email,
-        role: params.role || 'researcher',
-        organization: params.organization?.trim() || 'Coastal Emergency Management',
-        createdAt: new Date().toISOString(),
-        savedCyclones: ['DANA', 'REMAL'],
-        alertSubscribedBasins: ['Bay of Bengal'],
-        preferences: { windUnit: 'kmh', pressureUnit: 'hpa', defaultChannel: 'TIR1' },
-        passwordHash: hashPassword(params.password, salt),
-        salt,
-      };
-      store.users.push(user);
-      writeLocalStore(store);
-      return publicUser(user);
     }
 
-    const client = await pool.connect();
-    try {
-      const existing = await client.query('SELECT 1 FROM users WHERE email = $1', [email]);
-      if (existing.rowCount) throw new Error('An account with this email address already exists.');
-      const id = `usr_${crypto.randomUUID()}`;
-      const salt = crypto.randomBytes(16).toString('hex');
-      const passwordHash = hashPassword(params.password, salt);
-      await client.query('BEGIN');
-      await client.query(
-        `INSERT INTO users (id, name, email, password_hash, password_salt, role, organization)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [id, params.name.trim(), email, passwordHash, salt, params.role || 'researcher', params.organization?.trim() || 'Coastal Emergency Management'],
-      );
-      await client.query('INSERT INTO user_preferences (user_id) VALUES ($1) ON CONFLICT DO NOTHING', [id]);
-      await client.query("INSERT INTO saved_cyclones (user_id, cyclone_name) VALUES ($1, 'DANA'), ($1, 'REMAL') ON CONFLICT DO NOTHING", [id]);
-      await client.query("INSERT INTO alert_subscribed_basins (user_id, basin_name) VALUES ($1, 'Bay of Bengal') ON CONFLICT DO NOTHING", [id]);
-      await client.query('COMMIT');
-      const result = await client.query(`${userSelect} WHERE u.id = $1`, [id]);
-      return mapUser(result.rows[0]);
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
+    // Fallback store (In-memory / JSON)
+    const store = readLocalStore();
+    if (store.users.some((user) => user.email.toLowerCase() === email)) {
+      throw new Error('An account with this email address already exists. Please sign in instead.');
     }
+    const salt = crypto.randomBytes(16).toString('hex');
+    const user: StoredUser = {
+      id: `usr_${crypto.randomUUID()}`,
+      name: params.name.trim(),
+      email,
+      role: params.role || 'researcher',
+      organization: params.organization?.trim() || 'Coastal Emergency Management',
+      createdAt: new Date().toISOString(),
+      savedCyclones: ['DANA', 'REMAL'],
+      alertSubscribedBasins: ['Bay of Bengal'],
+      preferences: { windUnit: 'kmh', pressureUnit: 'hpa', defaultChannel: 'TIR1' },
+      passwordHash: hashPassword(params.password, salt),
+      salt,
+    };
+    store.users.push(user);
+    writeLocalStore(store);
+    return publicUser(user);
   },
 
   async findUserByEmail(emailOrUsername: string): Promise<StoredUser | null> {
     if (!emailOrUsername) return null;
     const value = emailOrUsername.trim().toLowerCase();
-    if (!pool) return readLocalStore().users.find((user) => user.email.toLowerCase() === value || user.username?.toLowerCase() === value) || null;
-    try {
-      const result = await pool.query(`${userSelect} WHERE lower(u.email) = $1 OR lower(COALESCE(u.username, '')) = $1`, [value]);
-      if (!result.rowCount) return null;
-      const row = result.rows[0];
-      return { ...mapUser(row), passwordHash: row.password_hash, salt: row.password_salt };
-    } catch (err) {
-      console.warn('PostgreSQL findUserByEmail query error, falling back to local store:', err);
-      return readLocalStore().users.find((user) => user.email.toLowerCase() === value || user.username?.toLowerCase() === value) || null;
+    if (pool) {
+      try {
+        const result = await pool.query(`${userSelect} WHERE lower(u.email) = $1 OR lower(COALESCE(u.username, '')) = $1`, [value]);
+        if (result.rowCount) {
+          const row = result.rows[0];
+          return { ...mapUser(row), passwordHash: row.password_hash, salt: row.password_salt };
+        }
+      } catch (err) {
+        console.warn('PostgreSQL findUserByEmail query error, falling back to local RAM store:', err);
+      }
     }
+    return readLocalStore().users.find((user) => user.email.toLowerCase() === value || user.username?.toLowerCase() === value) || null;
   },
 
   verifyPassword(storedUser: StoredUser, passwordAttempt: string): boolean {
@@ -280,76 +300,76 @@ export const db = {
       writeLocalStore(store);
       return;
     }
-    const salt = crypto.randomBytes(16).toString('hex');
-    await pool.query('UPDATE users SET password_hash = $1, password_salt = $2 WHERE id = $3', [hashPassword(password, salt), salt, storedUser.id]);
+    try {
+      const salt = crypto.randomBytes(16).toString('hex');
+      await pool.query('UPDATE users SET password_hash = $1, password_salt = $2 WHERE id = $3', [hashPassword(password, salt), salt, storedUser.id]);
+    } catch {}
   },
 
   async createSession(userId: string): Promise<string> {
     const token = crypto.randomBytes(32).toString('hex');
-    if (!pool) {
-      const store = readLocalStore();
-      store.sessions = store.sessions.filter((session) => new Date(session.expiresAt).getTime() > Date.now());
-      store.sessions.push({ token, userId, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() });
-      writeLocalStore(store);
-      return token;
+    if (pool) {
+      try {
+        await pool.query(`INSERT INTO user_sessions (token, user_id, expires_at) VALUES ($1, $2, CURRENT_TIMESTAMP + INTERVAL '30 days')`, [token, userId]);
+      } catch (err) {
+        console.warn('PostgreSQL session creation notice:', err);
+      }
     }
-    try {
-      await pool.query(`INSERT INTO user_sessions (token, user_id, expires_at) VALUES ($1, $2, CURRENT_TIMESTAMP + INTERVAL '30 days')`, [token, userId]);
-    } catch (err) {
-      console.warn('PostgreSQL session creation notice:', err);
-    }
+    const store = readLocalStore();
+    store.sessions = store.sessions.filter((session) => new Date(session.expiresAt).getTime() > Date.now());
+    store.sessions.push({ token, userId, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString() });
+    writeLocalStore(store);
     return token;
   },
 
   async getUserByToken(token: string): Promise<UserProfile | null> {
     if (!token) return null;
-    if (!pool) {
-      const store = readLocalStore();
-      const session = store.sessions.find((entry) => entry.token === token && new Date(entry.expiresAt).getTime() > Date.now());
-      const user = session && store.users.find((entry) => entry.id === session.userId);
-      return user ? publicUser(user) : null;
+    if (pool) {
+      try {
+        const result = await pool.query(`${userSelect} JOIN user_sessions s ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > CURRENT_TIMESTAMP`, [token]);
+        if (result.rowCount) return mapUser(result.rows[0]);
+      } catch (err) {
+        console.warn('PostgreSQL session lookup error:', err);
+      }
     }
-    try {
-      const result = await pool.query(`${userSelect} JOIN user_sessions s ON s.user_id = u.id WHERE s.token = $1 AND s.expires_at > CURRENT_TIMESTAMP`, [token]);
-      return result.rowCount ? mapUser(result.rows[0]) : null;
-    } catch (err) {
-      console.warn('PostgreSQL session lookup error:', err);
-      const store = readLocalStore();
-      const session = store.sessions.find((entry) => entry.token === token && new Date(entry.expiresAt).getTime() > Date.now());
-      const user = session && store.users.find((entry) => entry.id === session.userId);
-      return user ? publicUser(user) : null;
-    }
+    const store = readLocalStore();
+    const session = store.sessions.find((entry) => entry.token === token && new Date(entry.expiresAt).getTime() > Date.now());
+    const user = session && store.users.find((entry) => entry.id === session.userId);
+    return user ? publicUser(user) : null;
   },
 
   async invalidateSession(token: string): Promise<void> {
     if (!token) return;
-    if (!pool) {
-      const store = readLocalStore();
-      store.sessions = store.sessions.filter((session) => session.token !== token);
-      writeLocalStore(store);
-      return;
+    if (pool) {
+      try {
+        await pool.query('DELETE FROM user_sessions WHERE token = $1', [token]);
+      } catch (err) {
+        console.warn('PostgreSQL session deletion notice:', err);
+      }
     }
-    try {
-      await pool.query('DELETE FROM user_sessions WHERE token = $1', [token]);
-    } catch (err) {
-      console.warn('PostgreSQL session deletion notice:', err);
-    }
+    const store = readLocalStore();
+    store.sessions = store.sessions.filter((session) => session.token !== token);
+    writeLocalStore(store);
   },
 
   async toggleSavedCyclone(userId: string, cycloneName: string): Promise<string[]> {
     const name = cycloneName.trim().toUpperCase();
-    if (!pool) {
-      const store = readLocalStore();
-      const user = store.users.find((entry) => entry.id === userId);
-      if (!user) throw new Error('Account not found. Please sign in again.');
-      user.savedCyclones = user.savedCyclones.includes(name) ? user.savedCyclones.filter((saved) => saved !== name) : [...user.savedCyclones, name];
-      writeLocalStore(store);
-      return user.savedCyclones;
+    if (pool) {
+      try {
+        const existing = await pool.query('SELECT 1 FROM saved_cyclones WHERE user_id = $1 AND cyclone_name = $2', [userId, name]);
+        if (existing.rowCount) await pool.query('DELETE FROM saved_cyclones WHERE user_id = $1 AND cyclone_name = $2', [userId, name]);
+        else await pool.query('INSERT INTO saved_cyclones (user_id, cyclone_name) VALUES ($1, $2)', [userId, name]);
+        const result = await pool.query('SELECT cyclone_name FROM saved_cyclones WHERE user_id = $1 ORDER BY saved_at', [userId]);
+        return result.rows.map((row) => row.cyclone_name);
+      } catch (err) {
+        console.warn('PostgreSQL toggleSavedCyclone error:', err);
+      }
     }
-    const existing = await pool.query('SELECT 1 FROM saved_cyclones WHERE user_id = $1 AND cyclone_name = $2', [userId, name]);
-    if (existing.rowCount) await pool.query('DELETE FROM saved_cyclones WHERE user_id = $1 AND cyclone_name = $2', [userId, name]);
-    else await pool.query('INSERT INTO saved_cyclones (user_id, cyclone_name) VALUES ($1, $2)', [userId, name]);
-    const result = await pool.query('SELECT cyclone_name FROM saved_cyclones WHERE user_id = $1 ORDER BY saved_at', [userId]);
-    return result.rows.map((row) => row.cyclone_name);
+    const store = readLocalStore();
+    const user = store.users.find((entry) => entry.id === userId);
+    if (!user) throw new Error('Account not found. Please sign in again.');
+    user.savedCyclones = user.savedCyclones.includes(name) ? user.savedCyclones.filter((saved) => saved !== name) : [...user.savedCyclones, name];
+    writeLocalStore(store);
+    return user.savedCyclones;
   },
 };

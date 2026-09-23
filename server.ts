@@ -6,7 +6,7 @@ import { createServer as createViteServer } from 'vite';
 import { db } from './server/db';
 
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 app.disable('x-powered-by');
 app.use(express.json({ limit: '32kb' }));
@@ -612,13 +612,6 @@ ${rawText.slice(0, 8_000)}`;
       });
 
       const replyText = response.text || '';
-      const cleanJson = replyText.replace(/```json\s*/gi, '').replace(/```/g, '').trim();
-      const parsed = JSON.parse(cleanJson);
-      return res.json(parsed);
-    } catch (err: any) {
-      console.warn('AI Parsing failed, using regex extraction fallback:', err?.message);
-    }
-  }
       const cleanJson = replyText.replace(/```json\s*/gi, '').replace(/```/g, '').trim();
       const parsed = JSON.parse(cleanJson);
       return res.json(parsed);

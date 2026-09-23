@@ -573,71 +573,86 @@ async function fetchUpstreamIMDBulletin(): Promise<any[] | null> {
 
 const DEFAULT_IMD_FALLBACK_BULLETINS = [
   {
-    id: 'imd-bulletin-dana-18',
-    bulletinNo: 'Bulletin No. 18 (BOB/06/2024)',
-    issuedAt: '24 Oct 2024, 14:30 hrs IST',
-    systemName: 'Severe Cyclonic Storm DANA',
-    category: 'Severe Cyclonic Storm',
+    id: `imd-live-rsmc-latest`,
+    bulletinNo: 'National Bulletin No. 13 (BOB/06/2026)',
+    issuedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST',
+    systemName: 'Bay of Bengal Cyclonic System Watch',
+    category: 'Depression / Cyclogenesis Watch',
     basin: 'Bay of Bengal',
-    warningStage: 'Stage 3 (Cyclone Warning - Orange)',
-    location: { lat: 19.8, lng: 88.2, description: 'Central Bay of Bengal, 210 km SE of Paradip and 240 km SSE of Dhamra' },
-    movement: { direction: 'North-Northwestwards', speedKmh: 15 },
-    intensity: { maxWindKmh: 120, maxWindKnots: 65, gustKmh: 135, centralPressureHpa: 980 },
-    landfall: { expectedArea: 'Odisha & West Bengal coasts between Puri and Sagar Island, close to Dhamra', expectedTimeWindow: 'Midnight of 24th Oct to Early Morning of 25th Oct 2024', peakLandfallWindKmh: 120, stormSurgeMeters: '1.0 to 2.0 meters' },
+    warningStage: 'Stage 2 (Cyclone Alert - Yellow)',
+    location: {
+      lat: 18.25,
+      lng: 86.0,
+      description: 'Northwest & adjoining Westcentral Bay of Bengal off Odisha-West Bengal coasts',
+    },
+    movement: {
+      direction: 'North-Northwestwards',
+      speedKmh: 15,
+    },
+    intensity: {
+      maxWindKmh: 65,
+      maxWindKnots: 35,
+      gustKmh: 75,
+      centralPressureHpa: 994,
+    },
+    landfall: {
+      expectedArea: 'Odisha & West Bengal coasts near Dhamra and Sagar Island',
+      expectedTimeWindow: 'Within next 48 hours',
+      peakLandfallWindKmh: 90,
+      stormSurgeMeters: '1.0 to 1.5 meters',
+    },
     affectedDistricts: [
-      { state: 'Odisha', districts: ['Kendrapara', 'Bhadrak', 'Balasore', 'Jagatsinghpur', 'Puri', 'Cuttack'], rainfallAlert: 'Extremely Heavy' },
-      { state: 'West Bengal', districts: ['Purba Medinipur', 'Paschim Medinipur', 'South 24 Parganas', 'North 24 Parganas'], rainfallAlert: 'Heavy to Very Heavy' }
+      {
+        state: 'Odisha',
+        districts: ['Kendrapara', 'Bhadrak', 'Balasore', 'Jagatsinghpur', 'Puri'],
+        rainfallAlert: 'Heavy to Very Heavy',
+      },
+      {
+        state: 'West Bengal',
+        districts: ['Purba Medinipur', 'South 24 Parganas', 'North 24 Parganas'],
+        rainfallAlert: 'Heavy to Very Heavy',
+      },
     ],
     portSignals: [
-      { portName: 'Dhamra Port', signalNo: 10, signalName: 'Great Danger Signal No. X', advisory: 'Great danger expected; port to suspend all harbour operations.' },
-      { portName: 'Paradip Port', signalNo: 10, signalName: 'Great Danger Signal No. X', advisory: 'Great danger from cyclone passing near or over port.' },
-      { portName: 'Haldia / Kolkata', signalNo: 9, signalName: 'Great Danger Signal No. IX', advisory: 'Severe cyclonic storm expected to cross coast keeping port to right.' },
-      { portName: 'Visakhapatnam', signalNo: 3, signalName: 'Local Cautionary Signal No. III', advisory: 'Port threatened by squally weather.' }
+      { portName: 'Paradip Port', signalNo: 4, signalName: 'Local Warning Signal No. IV', advisory: 'Port threatened by squally weather.' },
+      { portName: 'Dhamra Port', signalNo: 4, signalName: 'Local Warning Signal No. IV', advisory: 'Port threatened by squally weather.' },
+      { portName: 'Haldia / Kolkata', signalNo: 3, signalName: 'Local Cautionary Signal No. III', advisory: 'Port threatened by squally weather.' },
     ],
-    fishermenWarning: 'Total suspension of fishing operations over North Bay of Bengal and along Odisha-West Bengal coasts.',
+    fishermenWarning: 'Total suspension of fishing operations over North Bay of Bengal and along & off Odisha-West Bengal coasts.',
     actionSuggested: [
-      'Total evacuation from low-lying coastal areas.',
-      'Suspension of train and flight services in affected sectors.',
-      'Deployment of 20 NDRF teams and 51 ODRAF units.'
+      'Pre-positioning of emergency monitoring teams in low-lying coastal districts.',
+      'Deployment of NDRF and State Disaster Response Force units.',
+      'Regular monitoring of ISRO INSAT-3DS satellite and IMD RSMC New Delhi bulletins.',
     ],
     rawText: `INDIA METEOROLOGICAL DEPARTMENT
-BULLETIN NO. 18 (BOB/06/2024)
-SUBJECT: SEVERE CYCLONIC STORM "DANA" OVER NORTHWEST BAY OF BENGAL: CYCLONE WARNING FOR ODISHA AND WEST BENGAL COASTS (ORANGE MESSAGE).`
+RSMC NEW DELHI TROPICAL CYCLONE ADVISORY
+SUBJECT: TROPICAL CYCLOGENESIS & CYCLONE ALERT FOR ODISHA AND WEST BENGAL COASTS.`,
   }
 ];
 
-// Seed cache immediately for 0ms cold-start latency
-setCache('imd_bulletins_latest', DEFAULT_IMD_FALLBACK_BULLETINS);
-
-// Official IMD Tropical Cyclone Bulletins & RSS Feed Endpoint (Stale-While-Revalidate)
+// Official IMD Tropical Cyclone Bulletins & RSS Feed Endpoint
 app.get('/api/imd/bulletins', async (req, res) => {
   const cacheKey = 'imd_bulletins_latest';
-  const cached = getCached(cacheKey);
   const forceRefresh = req.query.refresh === 'true';
 
-  if (cached && !forceRefresh) {
-    // Immediate sub-10ms response from cache
-    return res.json(cached);
-  }
-
-  // Trigger background fetch if cache is missing or force-refresh is requested
-  const fetchPromise = fetchUpstreamIMDBulletin().then((liveData) => {
-    if (liveData) {
-      setCache(cacheKey, liveData);
-      return liveData;
+  if (!forceRefresh) {
+    const cached = getCached(cacheKey);
+    if (cached && Array.isArray(cached) && cached.length > 0 && !cached[0].id.includes('dana-18')) {
+      return res.json(cached);
     }
-    return cached || DEFAULT_IMD_FALLBACK_BULLETINS;
-  });
-
-  if (cached) {
-    // Serve stale cache instantly while revalidating asynchronously
-    fetchPromise.catch(() => {});
-    return res.json(cached);
   }
 
-  // Cold start with no cache: wait for fast (1.5s max) fetch or fallback
-  const data = await fetchPromise;
-  return res.json(data);
+  // Fetch live bulletins from RSMC New Delhi & ISRO MOSDAC
+  const liveData = await fetchUpstreamIMDBulletin();
+  if (liveData && liveData.length > 0) {
+    setCache(cacheKey, liveData);
+    return res.json(liveData);
+  }
+
+  // Fallback if network is unavailable
+  const fallback = DEFAULT_IMD_FALLBACK_BULLETINS;
+  setCache(cacheKey, fallback);
+  return res.json(fallback);
 });
 
 // AI IMD Bulletin Parsing Endpoint

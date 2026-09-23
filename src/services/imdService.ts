@@ -174,9 +174,10 @@ A LOW PRESSURE AREA HAS FORMED OVER SOUTHEAST BAY OF BENGAL. IT IS LIKELY TO CON
   }
 ];
 
-export async function fetchIMDBulletins(): Promise<IMDBulletin[]> {
+export async function fetchIMDBulletins(forceRefresh: boolean = false): Promise<IMDBulletin[]> {
   try {
-    const res = await fetch('/api/imd/bulletins');
+    const url = forceRefresh ? '/api/imd/bulletins?refresh=true' : '/api/imd/bulletins';
+    const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {

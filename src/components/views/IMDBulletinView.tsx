@@ -38,10 +38,10 @@ export const IMDBulletinView: React.FC<IMDBulletinViewProps> = ({ onSelectCyclon
     loadBulletins();
   }, []);
 
-  const loadBulletins = async () => {
+  const loadBulletins = async (forceRefresh: boolean = false) => {
     setLoading(true);
     try {
-      const data = await fetchIMDBulletins();
+      const data = await fetchIMDBulletins(forceRefresh);
       setBulletins(data);
       if (data.length > 0) {
         setSelectedBulletinId(data[0].id);
@@ -114,7 +114,7 @@ export const IMDBulletinView: React.FC<IMDBulletinViewProps> = ({ onSelectCyclon
 
         <div className="flex flex-wrap items-center gap-2">
           <button
-            onClick={loadBulletins}
+            onClick={() => loadBulletins(true)}
             disabled={loading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 transition cursor-pointer"
           >

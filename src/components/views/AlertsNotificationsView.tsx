@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Bell, AlertTriangle, ShieldCheck, Radio, Check, Info, ExternalLink, Trash2, Clock, RotateCcw } from 'lucide-react';
 import { AlertNotification } from '../../types';
 import { getAlertRemainingTime } from '../../data/cycloneData';
@@ -17,39 +17,37 @@ export const AlertsNotificationsView: React.FC<AlertsNotificationsViewProps> = (
   onRestoreAlerts,
 }) => {
   const [filterSeverity, setFilterSeverity] = useState<'all' | 'urgent' | 'warning'>('all');
+  const [bulletin, setBulletin] = useState<{ alert: string; source: string; timestamp: string } | null>(null);
+  const [bulletinError, setBulletinError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadBulletin = async () => {
+      try {
+        const response = await fetch('/api/mosdac/alert', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Official feed unavailable');
+        const data = await response.json();
+        // Older running dev servers do not include isLive. Treat only an
+        // explicit false as cached, while production uses the new flag.
+        if (data.isLive === false) throw new Error('Official feed returned cached data');
+        if (!cancelled) {
+          setBulletin({ alert: data.alert, source: data.source, timestamp: data.timestamp });
+          setBulletinError('');
+        }
+      } catch {
+        if (!cancelled) setBulletinError('The official MOSDAC bulletin feed is temporarily unavailable. No stored bulletin is shown as current.');
+      }
+    };
+    loadBulletin();
+    const timer = window.setInterval(loadBulletin, 5 * 60 * 1000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
 
   const filteredAlerts = alerts.filter((a) => {
     if (filterSeverity === 'urgent') return a.severity === 'urgent';
     if (filterSeverity === 'warning') return a.severity === 'warning';
     return true;
   });
-
-  const officialBulletins = [
-    {
-      title: 'IMD National Cyclone Warning Centre (NCWC) Bulletin No. 18',
-      date: 'Latest Issued: 03:00 UTC / 08:30 IST',
-      category: 'RED WARNING (Landfall Imminent)',
-      content:
-        'The Severe Cyclonic Storm is centered over North Bay of Bengal. It is very likely to move north-northwestwards and cross north Odisha and West Bengal coasts between Puri and Sagar Island close to Bhitarkanika and Dhamra with a wind speed of 100-110 kmph gusting to 120 kmph.',
-      source: 'India Meteorological Department (MoES), New Delhi',
-    },
-    {
-      title: 'MOSDAC SCORPIO Live Cyclogenesis Alert',
-      date: 'INSAT-3DS Synchronized Pass',
-      category: 'ISRO Satellite Telemetry Advisory',
-      content:
-        'Convective cloud clusters show prominent curvature with cloud-top brightness temperatures dipping to -82°C in the eyewall region. Scatterometer surface wind vectors confirm sustained gale-force winds exceeding 55 knots within a 90-nautical-mile radius.',
-      source: 'ISRO Space Applications Centre (SAC), Ahmedabad',
-    },
-    {
-      title: 'Marine Advisory & Fishermen Warning',
-      date: 'Valid for next 72 Hours',
-      category: 'TOTAL FISHING SUSPENSION',
-      content:
-        'Squally wind speed reaching 60-70 kmph gusting to 80 kmph is prevailing over central Bay of Bengal. Fishermen are strictly advised not to venture into deep sea areas of Central and North Bay of Bengal and along and off Odisha and West Bengal coasts.',
-      source: 'Coastal Disaster Management Authority',
-    },
-  ];
 
   return (
     <div id="alerts-notifications-view" className="space-y-6">
@@ -110,29 +108,29 @@ export const AlertsNotificationsView: React.FC<AlertsNotificationsViewProps> = (
 
       {/* Official Bulletins */}
       <div className="space-y-4">
-        {officialBulletins.map((b, idx) => (
+        {bulletin && (
           <div
-            key={idx}
             className="rounded-2xl bg-gradient-to-r from-slate-900 to-slate-950 border border-slate-800 p-5 shadow-lg"
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3 mb-3">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 text-rose-400" />
-                <h2 className="font-bold text-white text-sm sm:text-base">{b.title}</h2>
+                <h2 className="font-bold text-white text-sm sm:text-base">Latest MOSDAC SCORPIO Cyclone Bulletin</h2>
               </div>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-950 text-rose-300 border border-rose-800 self-start sm:self-auto">
-                {b.category}
+                LIVE SOURCE
               </span>
             </div>
 
-            <p className="text-xs text-slate-300 leading-relaxed">{b.content}</p>
+            <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{bulletin.alert}</p>
 
             <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center justify-between text-[11px] text-slate-400 gap-2">
-              <span className="font-medium text-slate-400">{b.source}</span>
-              <span className="font-mono text-cyan-300">{b.date}</span>
+              <a className="font-medium text-cyan-300 hover:underline" href={bulletin.source} target="_blank" rel="noreferrer">Official source</a>
+              <span className="font-mono text-cyan-300">Retrieved {new Date(bulletin.timestamp).toLocaleString()}</span>
             </div>
           </div>
-        ))}
+        )}
+        {!bulletin && <div className="rounded-2xl border border-amber-800 bg-amber-950/20 p-5 text-xs text-amber-200">{bulletinError || 'Loading the latest official bulletin…'}</div>}
       </div>
 
       {/* Live Active Incident Alerts */}

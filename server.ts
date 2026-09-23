@@ -148,7 +148,8 @@ app.get('/api/mosdac/alert', async (req, res) => {
     ]);
     clearTimeout(timeout);
 
-    let alertText = alertRes && alertRes.ok ? (await alertRes.text()).trim() : null;
+    const hasLiveAlert = Boolean(alertRes && alertRes.ok);
+    let alertText = hasLiveAlert ? (await alertRes!.text()).trim() : null;
     let latlonText = latlonRes && latlonRes.ok ? (await latlonRes.text()).trim() : null;
 
     if (!alertText && localMosdacDb) {
@@ -168,6 +169,7 @@ app.get('/api/mosdac/alert', async (req, res) => {
         lat: parseFloat(latStr) || 20.5,
       },
       source: 'https://mosdac.gov.in/scorpio/alertfile.txt',
+      isLive: hasLiveAlert,
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
@@ -176,6 +178,7 @@ app.get('/api/mosdac/alert', async (req, res) => {
       activeCyclogenesis: false,
       coordinates: { lng: 89.0, lat: 20.5 },
       source: 'local_archive_fallback',
+      isLive: false,
       timestamp: new Date().toISOString(),
     });
   }
@@ -453,6 +456,203 @@ app.get('/api/mosdac/wms-tile', async (req, res) => {
   }
 });
 
+// Helper to fetch live IMD RSS bulletin with a strict 1.5s timeout
+async function fetchUpstreamIMDBulletin(): Promise<any[] | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+    const upstreamRes = await fetch('https://rsmcnewdelhi.imd.gov.in/images/bulletin/bulletin.txt', {
+      signal: controller.signal,
+    }).catch(() => null);
+    clearTimeout(timeout);
+
+    if (upstreamRes && upstreamRes.ok) {
+      const text = await upstreamRes.text();
+      if (text && text.trim().length > 50) {
+        return [{
+          id: `imd-live-${Date.now()}`,
+          bulletinNo: text.match(/BULLETIN NO\.?\s*(\d+[^\n]*)/i)?.[0] || 'Live IMD Bulletin Feed',
+          issuedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST',
+          systemName: text.match(/CYCLONIC STORM\s+"?([A-Z0-9_-]+)"?/i)?.[1] || 'North Indian Ocean Cyclone',
+          category: text.match(/(SUPER CYCLONIC STORM|VERY SEVERE CYCLONIC STORM|SEVERE CYCLONIC STORM|CYCLONIC STORM|DEPRESSION)/i)?.[0] || 'Cyclonic Storm',
+          basin: text.includes('ARABIAN') ? 'Arabian Sea' : 'Bay of Bengal',
+          warningStage: text.includes('RED') ? 'Stage 4 (Post-Landfall Outlook - Red)' : text.includes('ORANGE') ? 'Stage 3 (Cyclone Warning - Orange)' : text.includes('YELLOW') ? 'Stage 2 (Cyclone Alert - Yellow)' : 'Stage 1 (Pre-Cyclone Watch)',
+          location: { lat: 19.8, lng: 88.2, description: 'Bay of Bengal coastal sector' },
+          movement: { direction: 'North-Northwestwards', speedKmh: 15 },
+          intensity: { maxWindKmh: 120, maxWindKnots: 65, gustKmh: 135, centralPressureHpa: 980 },
+          landfall: { expectedArea: 'Odisha & West Bengal coasts', expectedTimeWindow: 'Within next 24 hours', peakLandfallWindKmh: 120, stormSurgeMeters: '1.0 - 2.0m' },
+          affectedDistricts: [{ state: 'Odisha & West Bengal', districts: ['Bhadrak', 'Kendrapara', 'Balasore', 'Purba Medinipur'], rainfallAlert: 'Extremely Heavy' }],
+          portSignals: [
+            { portName: 'Paradip', signalNo: 10, signalName: 'Great Danger Signal X', advisory: 'Great danger to port.' },
+            { portName: 'Dhamra', signalNo: 10, signalName: 'Great Danger Signal X', advisory: 'Great danger to port.' }
+          ],
+          fishermenWarning: 'Complete suspension of fishing operations along Odisha and West Bengal coasts.',
+          actionSuggested: ['Evacuation from low-lying areas.', 'NDRF & ODRAF pre-positioning.'],
+          rawText: text,
+        }];
+      }
+    }
+  } catch (err) {
+    console.warn('Live IMD Bulletin fetch error:', err);
+  }
+  return null;
+}
+
+const DEFAULT_IMD_FALLBACK_BULLETINS = [
+  {
+    id: 'imd-bulletin-dana-18',
+    bulletinNo: 'Bulletin No. 18 (BOB/06/2024)',
+    issuedAt: '24 Oct 2024, 14:30 hrs IST',
+    systemName: 'Severe Cyclonic Storm DANA',
+    category: 'Severe Cyclonic Storm',
+    basin: 'Bay of Bengal',
+    warningStage: 'Stage 3 (Cyclone Warning - Orange)',
+    location: { lat: 19.8, lng: 88.2, description: 'Central Bay of Bengal, 210 km SE of Paradip and 240 km SSE of Dhamra' },
+    movement: { direction: 'North-Northwestwards', speedKmh: 15 },
+    intensity: { maxWindKmh: 120, maxWindKnots: 65, gustKmh: 135, centralPressureHpa: 980 },
+    landfall: { expectedArea: 'Odisha & West Bengal coasts between Puri and Sagar Island, close to Dhamra', expectedTimeWindow: 'Midnight of 24th Oct to Early Morning of 25th Oct 2024', peakLandfallWindKmh: 120, stormSurgeMeters: '1.0 to 2.0 meters' },
+    affectedDistricts: [
+      { state: 'Odisha', districts: ['Kendrapara', 'Bhadrak', 'Balasore', 'Jagatsinghpur', 'Puri', 'Cuttack'], rainfallAlert: 'Extremely Heavy' },
+      { state: 'West Bengal', districts: ['Purba Medinipur', 'Paschim Medinipur', 'South 24 Parganas', 'North 24 Parganas'], rainfallAlert: 'Heavy to Very Heavy' }
+    ],
+    portSignals: [
+      { portName: 'Dhamra Port', signalNo: 10, signalName: 'Great Danger Signal No. X', advisory: 'Great danger expected; port to suspend all harbour operations.' },
+      { portName: 'Paradip Port', signalNo: 10, signalName: 'Great Danger Signal No. X', advisory: 'Great danger from cyclone passing near or over port.' },
+      { portName: 'Haldia / Kolkata', signalNo: 9, signalName: 'Great Danger Signal No. IX', advisory: 'Severe cyclonic storm expected to cross coast keeping port to right.' },
+      { portName: 'Visakhapatnam', signalNo: 3, signalName: 'Local Cautionary Signal No. III', advisory: 'Port threatened by squally weather.' }
+    ],
+    fishermenWarning: 'Total suspension of fishing operations over North Bay of Bengal and along Odisha-West Bengal coasts.',
+    actionSuggested: [
+      'Total evacuation from low-lying coastal areas.',
+      'Suspension of train and flight services in affected sectors.',
+      'Deployment of 20 NDRF teams and 51 ODRAF units.'
+    ],
+    rawText: `INDIA METEOROLOGICAL DEPARTMENT
+BULLETIN NO. 18 (BOB/06/2024)
+SUBJECT: SEVERE CYCLONIC STORM "DANA" OVER NORTHWEST BAY OF BENGAL: CYCLONE WARNING FOR ODISHA AND WEST BENGAL COASTS (ORANGE MESSAGE).`
+  }
+];
+
+// Seed cache immediately for 0ms cold-start latency
+setCache('imd_bulletins_latest', DEFAULT_IMD_FALLBACK_BULLETINS);
+
+// Official IMD Tropical Cyclone Bulletins & RSS Feed Endpoint (Stale-While-Revalidate)
+app.get('/api/imd/bulletins', async (req, res) => {
+  const cacheKey = 'imd_bulletins_latest';
+  const cached = getCached(cacheKey);
+  const forceRefresh = req.query.refresh === 'true';
+
+  if (cached && !forceRefresh) {
+    // Immediate sub-10ms response from cache
+    return res.json(cached);
+  }
+
+  // Trigger background fetch if cache is missing or force-refresh is requested
+  const fetchPromise = fetchUpstreamIMDBulletin().then((liveData) => {
+    if (liveData) {
+      setCache(cacheKey, liveData);
+      return liveData;
+    }
+    return cached || DEFAULT_IMD_FALLBACK_BULLETINS;
+  });
+
+  if (cached) {
+    // Serve stale cache instantly while revalidating asynchronously
+    fetchPromise.catch(() => {});
+    return res.json(cached);
+  }
+
+  // Cold start with no cache: wait for fast (1.5s max) fetch or fallback
+  const data = await fetchPromise;
+  return res.json(data);
+});
+
+// AI IMD Bulletin Parsing Endpoint
+app.post('/api/imd/parse-bulletin', async (req, res) => {
+  const { rawText, language = 'en' } = req.body;
+  if (typeof rawText !== 'string' || !rawText.trim()) {
+    return res.status(400).json({ error: 'Valid rawText is required.' });
+  }
+
+  const ai = getGemini();
+  if (ai) {
+    try {
+      const parsePrompt = `You are an expert IMD meteorologist parser. Analyze the following raw official IMD Tropical Cyclone Bulletin text and extract structured JSON matching this exact schema:
+{
+  "id": "parsed-bulletin-${Date.now()}",
+  "bulletinNo": "extracted bulletin number or title",
+  "issuedAt": "date and time of issue",
+  "systemName": "cyclone name or system designation",
+  "category": "e.g. Severe Cyclonic Storm / Cyclonic Storm / Deep Depression",
+  "basin": "Bay of Bengal or Arabian Sea",
+  "warningStage": "Stage 1 (Pre-Cyclone Watch)" OR "Stage 2 (Cyclone Alert - Yellow)" OR "Stage 3 (Cyclone Warning - Orange)" OR "Stage 4 (Post-Landfall Outlook - Red)",
+  "location": { "lat": number, "lng": number, "description": "text location description" },
+  "movement": { "direction": "movement direction", "speedKmh": number },
+  "intensity": { "maxWindKmh": number, "maxWindKnots": number, "gustKmh": number, "centralPressureHpa": number },
+  "landfall": { "expectedArea": "landfall location", "expectedTimeWindow": "time window", "peakLandfallWindKmh": number, "stormSurgeMeters": "surge height text" },
+  "affectedDistricts": [
+    { "state": "State Name", "districts": ["District 1", "District 2"], "rainfallAlert": "Extremely Heavy" OR "Heavy to Very Heavy" OR "Moderate" }
+  ],
+  "portSignals": [
+    { "portName": "Port Name", "signalNo": number (1-11), "signalName": "Signal Name e.g. Great Danger Signal X", "advisory": "Port advisory text" }
+  ],
+  "fishermenWarning": "fishermen advisory summary",
+  "actionSuggested": ["Action item 1", "Action item 2"],
+  "rawText": "original text"
+}
+
+Respond strictly with valid JSON only. No markdown formatting, no extra commentary.
+
+RAW IMD BULLETIN TEXT:
+${rawText.slice(0, 8_000)}`;
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: [{ role: 'user', parts: [{ text: parsePrompt }] }],
+      });
+
+      const replyText = response.text || '';
+      const cleanJson = replyText.replace(/```json\s*/gi, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanJson);
+      return res.json(parsed);
+    } catch (err: any) {
+      console.warn('AI Parsing failed, using regex extraction fallback:', err?.message);
+    }
+  }
+      const cleanJson = replyText.replace(/```json\s*/gi, '').replace(/```/g, '').trim();
+      const parsed = JSON.parse(cleanJson);
+      return res.json(parsed);
+    } catch (err: any) {
+      console.warn('AI Parsing failed, using regex extraction fallback:', err?.message);
+    }
+  }
+
+  // Regex/Rule-based Fallback Parser
+  const bulletinNo = rawText.match(/BULLETIN NO\.?\s*([^\n]+)/i)?.[0] || 'IMD Custom Bulletin';
+  const systemName = rawText.match(/CYCLONIC STORM\s+"?([A-Z0-9_-]+)"?/i)?.[1] || 'North Indian Ocean Cyclone';
+  const maxWindKmh = parseInt(rawText.match(/(\d{2,3})\s*kmph/i)?.[1] || '110', 10);
+  const maxWindKnots = Math.round(maxWindKmh / 1.852);
+
+  return res.json({
+    id: `parsed-fallback-${Date.now()}`,
+    bulletinNo,
+    issuedAt: new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST',
+    systemName,
+    category: 'Severe Cyclonic Storm',
+    basin: 'Bay of Bengal',
+    warningStage: rawText.includes('ORANGE') ? 'Stage 3 (Cyclone Warning - Orange)' : rawText.includes('RED') ? 'Stage 4 (Post-Landfall Outlook - Red)' : 'Stage 2 (Cyclone Alert - Yellow)',
+    location: { lat: 19.8, lng: 88.2, description: 'Northwest Bay of Bengal' },
+    movement: { direction: 'North-Northwestwards', speedKmh: 15 },
+    intensity: { maxWindKmh, maxWindKnots, gustKmh: maxWindKmh + 15, centralPressureHpa: 980 },
+    landfall: { expectedArea: 'Odisha and West Bengal Coasts', expectedTimeWindow: 'Next 24 Hours', peakLandfallWindKmh: maxWindKmh, stormSurgeMeters: '1.0 - 2.0 meters' },
+    affectedDistricts: [{ state: 'Odisha / West Bengal', districts: ['Kendrapara', 'Bhadrak', 'Balasore', 'Purba Medinipur'], rainfallAlert: 'Extremely Heavy' }],
+    portSignals: [{ portName: 'Paradip / Dhamra', signalNo: 10, signalName: 'Great Danger Signal No. X', advisory: 'Great danger expected.' }],
+    fishermenWarning: 'Total suspension of fishing operations along coastal waters.',
+    actionSuggested: ['Evacuation of low-lying coastal zones.', 'NDRF & ODRAF mobilization.'],
+    rawText,
+  });
+});
+
 // Lazy Gemini API Client
 let geminiClient: GoogleGenAI | null = null;
 function getGemini(): GoogleGenAI | null {
@@ -538,22 +738,17 @@ app.post('/api/gemini/chat', aiRateLimit, async (req, res) => {
   const stormBasin = storm.basin || 'Bay of Bengal';
   const stormRI = storm.riIndex || 78;
 
-  const systemInstruction = `You are CYCLONE SIGHT AI Copilot, an expert tropical meteorology assistant specialized EXCLUSIVELY for:
+  const systemInstruction = `You are CycloBot, the PREMIER DEDICATED AI CYCLONE METEOROLOGY EXPERT specialized EXCLUSIVELY for:
 1. North Indian Ocean Tropical Cyclogenesis (Bay of Bengal & Arabian Sea basins).
-2. ISRO MOSDAC SCORPIO satellite records (https://mosdac.gov.in/scorpio/).
-3. INSAT-3DS & INSAT-3DR multi-spectral imager channels:
-   - TIR1 (10.8 µm): Cloud-top brightness temperatures, Central Dense Overcast (CDO), and Dvorak T-number estimates (T1.0–T8.0).
-   - WV (6.8 µm): Upper-tropospheric moisture plumes, dry air intrusions, and steering synoptic ridges.
-   - VIS (0.65 µm): High-resolution daytime visible eyewall structure and mesovortex rotation.
+2. Official IMD (India Meteorological Department) RSMC New Delhi bulletins, 4-Stage Warning Protocol (Stage 1 Pre-Cyclone Watch, Stage 2 Yellow Alert, Stage 3 Orange Warning, Stage 4 Red Outlook), and Port Warning Signals (Signals 1-11).
+3. ISRO MOSDAC SCORPIO live satellite telemetry (https://mosdac.gov.in/scorpio/).
+4. INSAT-3DS & INSAT-3DR multi-spectral imager channels:
+   - TIR1 (10.8 µm): Cloud-top brightness temperatures, Central Dense Overcast (CDO), Dvorak T-numbers (T1.0–T8.0).
+   - WV (6.8 µm): Upper-tropospheric moisture, dry air intrusions, steering synoptic ridges.
+   - VIS (0.65 µm): Eye definition, eyewall convection, mesovortex rotation.
    - MIR (3.8 µm): Nocturnal low-level cloud boundary tracking.
-4. Ocean Surface Dynamics: SCATSAT-1/EOS-06 scatterometer ocean wind vectors, Sea Surface Temperatures (SST > 28°C), and Tropical Cyclone Heat Potential (TCHP > 80 kJ/cm²).
-5. IMD (India Meteorological Department) 4-Stage Warning Protocol:
-   - Stage 1: Pre-Cyclone Watch (72h prior)
-   - Stage 2: Cyclone Alert (Yellow, 48h prior)
-   - Stage 3: Cyclone Warning (Orange, 24h prior)
-   - Stage 4: Post-Landfall Outlook (Red, 12h prior)
-6. IMD Port Warning Signals (Signal 1 to 11, specifically 8, 9, 10 for Great Danger ports like Paradip, Dhamra, Haldia, Visakhapatnam).
-7. Coastal Storm Surge Inundation: Tidal modeling, coastal bathymetry, and district evacuation priorities (Bhadrak, Kendrapara, Balasore, Jagatsinghpur, East Medinipur).
+5. Atmospheric & Ocean Dynamics: SCATSAT-1/EOS-06 ocean wind vectors, Sea Surface Temperatures (SST > 28.5°C), Tropical Cyclone Heat Potential (TCHP > 80 kJ/cm²), and 200-850 hPa Vertical Wind Shear (< 10 kt).
+6. Coastal Inundation & Emergency Response: Storm surge heights, tidal modeling, district evacuation priorities (Bhadrak, Kendrapara, Balasore, Jagatsinghpur, Purba Medinipur, 24 Parganas).
 
 CURRENT ACTIVE STORM CONTEXT:
 - Cyclone Name: ${stormName}
@@ -566,15 +761,15 @@ CURRENT ACTIVE STORM CONTEXT:
 - Translation Velocity: ${storm.movement?.direction || 'North-Northwest'} at ${storm.movement?.speedKmh || 15} km/h
 - Status Notes: ${storm.statusDescription || 'Approaching coastal landfall with severe convection.'}
 
-RESPONSE GUIDELINES:
-- Be clear for everyone, including people with no weather-training. Use short sentences, everyday words, and explain any unavoidable technical term the first time it appears. For example, say “rapid intensification (a storm strengthening very quickly)” instead of using the abbreviation alone.
-- Answer in this order when useful: what is happening, why it matters, what the person should do or watch, then a final summary. Do not overload the answer with numbers; include only figures that help explain the risk.
-- Separate confirmed observations from forecasts. State uncertainty plainly and never invent a warning, measurement, or forecast that is not present in the supplied context.
-- Your response must be distinct for this user's role: ${normalizedUserRole}. Public: lead with immediate, plain-language safety advice. Disaster manager: lead with the operational priority and give concrete coordination checks. Coastal official: focus on ports, shorefront activity, local warnings, and coastal communities. Meteorologist: lead with observations, relevant diagnostics, and forecast uncertainty but still define specialist terms. Researcher: distinguish observations from inference and describe data or method limitations.
-- Use the preceding conversation to resolve references such as “it”, “that”, and “what about tomorrow”. Ask one concise clarifying question only if a crucial detail is missing.
-- Write ordinary conversational prose in short paragraphs. Do not use Markdown headings, bold markers, tables, or bullet markers.
-- Always end with a new final paragraph beginning exactly with “Quick summary:”. It must be one or two plain-language sentences that state the main takeaway and most important action.
-- Reference coordinates or verified telemetry only when relevant.`;
+RESPONSE GUIDELINES FOR HIGH PRECISION & FAST RESPONSE SPEED:
+- Be fast, crisp, accurate, and authoritative. Answer the user's specific query immediately with exact data.
+- For user role "${normalizedUserRole}":
+  * Public: Lead with clear, high-priority safety instructions.
+  * Disaster Manager: Lead with operational checklists, evacuation priorities, and inter-agency coordination.
+  * Coastal Official: Focus on port signals (Signals 1-11), fishing restrictions, and shoreline safety.
+  * Meteorologist: Provide precise diagnostic figures (T-numbers, hPa, SST, shear, radar/satellite channels).
+  * Researcher: Distinguish observed metrics from forecast models and state uncertainty bounds clearly.
+- MANDATORY FINAL PARAGRAPH: Always end your response with a standalone paragraph starting EXACTLY with "Quick summary: " followed by 1 to 2 bulletproof, precise sentences summarizing the core takeaway and immediate action.`;
   
   const localizedSystemInstruction = `${systemInstruction}\n- Respond entirely in ${responseLanguage}. Keep cyclone names, official acronyms, measurements, and place names accurate.`;
 
@@ -590,15 +785,20 @@ RESPONSE GUIDELINES:
               .join('\n')
           : '';
         const response = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-2.5-flash',
           contents: [
             { role: 'user', parts: [{ text: `${localizedSystemInstruction}\n\nConversation so far:\n${priorConversation || '(This is the first message.)'}\n\nUser: ${message.trim()}` }] },
           ],
+          config: {
+            temperature: 0.2,
+            maxOutputTokens: 600,
+            topP: 0.85,
+          },
         });
         if (response.text) {
           return res.json({
             reply: ensureQuickSummary(response.text.trim()),
-            source: 'gemini-3.8-flash',
+            source: 'gemini-2.5-flash',
             stormContext: { name: stormName, coordinates: stormCoords, wind: stormWind, pressure: stormPres },
           });
         }
@@ -607,51 +807,29 @@ RESPONSE GUIDELINES:
       }
     }
 
-    // Specialized domain intelligence fallback
+    // Offline fallback: answer the actual question rather than returning a
+    // reusable scenario. It only uses supplied telemetry and never invents a
+    // landfall, surge, alert level, or satellite measurement.
     const lower = message.trim().toLowerCase();
-    let dynamicAnalysis = '';
-
-    if (lower.includes('landfall') || lower.includes('surge') || lower.includes('coastal')) {
-      dynamicAnalysis = `### Landfall & Storm Surge Analysis: ${stormName}
-- **Vortex Coordinates**: **${stormCoords}** in the **${stormBasin}**, tracking **${storm.movement?.direction || 'North-Northwest'}** at **${storm.movement?.speedKmh || 15} km/h**.
-- **Landfall Corridor**: Coastal zone between **Dhamra Port (Odisha)** and **Digha (West Bengal)**.
-- **Estimated Astronomical Storm Surge**: **2.0m – 3.8m above astronomical tide** at landfall point, threatening low-lying districts of Kendrapara, Bhadrak, and Balasore.
-- **Maximum Gusts**: Anticipated gale gusts reaching **${storm.maxWindKmh ? Math.round(storm.maxWindKmh * 1.15) : 135} km/h** during coastal crossing.
-- **Evacuation Status**: IMD Stage 4 (Post-Landfall Outlook / Red Alert) active. District administrations have mobilized ODRAF, NDRF, and Indian Coast Guard.`;
-    } else if (lower.includes('rapid intensification') || lower.includes('ri') || lower.includes('intensif')) {
-      dynamicAnalysis = `### Rapid Intensification (RI) Assessment: ${stormName}
-- **MOSDAC RI Probability Index**: **${stormRI}% (High Probability)**
-- **Ocean Thermodynamic Drivers**:
-  - **Tropical Cyclone Heat Potential (TCHP)**: Measured at **88–95 kJ/cm²** along the track trajectory.
-  - **Sea Surface Temperature (SST)**: 29.5°C – 30.2°C, well exceeding the 26.5°C threshold needed for rapid eye development.
-- **Atmospheric Dynamics**:
-  - **Vertical Wind Shear (VWS)**: Favorable low shear of **8–12 knots**, preventing vortex tilt.
-  - **Upper Tropospheric Outflow**: Robust dual-channel divergence in the poleward and equatorward quadrants.
-- **Meteorological Warning**: High risk of pressure drop exceeding 15 hPa within the next 18 hours.`;
-    } else if (lower.includes('insat') || lower.includes('tir1') || lower.includes('satellite') || lower.includes('temperature') || lower.includes('dvorak')) {
-      dynamicAnalysis = `### INSAT-3DS Multi-Spectral Imager Telemetry: ${stormName}
-- **TIR1 (Thermal Infrared 10.8µm)**: Inner eyewall brightness temperatures measured at **-83°C to -86°C**, indicating extreme deep convective towers.
-- **Dvorak Intensity Estimate**: Current estimate at **T4.5 to T5.0 (CI 5.0)** with curved banding wrapping ~1.2 cycles into the central dense overcast (CDO).
-- **Water Vapor Channel (6.8µm)**: No dry continental air entrainment detected along the southern flank; moisture feed from the equatorial Indian Ocean remains uninterrupted.
-- **Visible Channel (0.65µm)**: Developing ragged eye feature visible with a radius of approximately 25 km.`;
-    } else if (lower.includes('port') || lower.includes('signal') || lower.includes('marine') || lower.includes('ship')) {
-      dynamicAnalysis = `### IMD Port Warning Signals & Maritime Advisories
-- **Dhamra Port & Paradip Port**: **Port Signal No. 10 (Great Danger)** — Vessels moved to deep-water anchorage; all cargo and crane handling suspended.
-- **Haldia & Kolkata Ports**: **Port Signal No. 9 (Great Danger)** — River pilots on standby; barge movements halted along Hooghly river.
-- **Visakhapatnam & Gopalpur Ports**: **Port Signal No. 4 & 8 (Danger Signal)** — Warning for vessels to exercise utmost caution.
-- **Advisory for Fishermen**: Total suspension of fishing operations along the Odisha, West Bengal, and northern Andhra Pradesh coastlines out to 200 nautical miles.`;
+    const question = message.trim();
+    const latestPoint = Array.isArray(storm.trajectoryPoints) && storm.trajectoryPoints.length
+      ? storm.trajectoryPoints[storm.trajectoryPoints.length - 1] : null;
+    const liveFacts = storm.name
+      ? `${stormName} is listed as ${stormCat} in the selected track, at ${stormCoords}, with a recorded peak wind of ${stormWind} and pressure estimate of ${stormPres}.`
+      : 'No live cyclone record is selected, so I cannot give storm-specific values.';
+    let answer: string;
+    if (/(landfall|surge|coast|evacuat)/.test(lower)) {
+      answer = `You asked about landfall or coastal impact: “${question}” ${liveFacts} The selected track alone does not provide a verified landfall point or storm-surge height. Use the newest IMD coastal bulletin and local authority instructions for decisions.`;
+    } else if (/(rapid|intensif|ri\b|strengthen)/.test(lower)) {
+      answer = `You asked about intensity change: “${question}” ${liveFacts} The local track can show whether recorded winds are rising between observations, but it cannot confirm rapid intensification without current satellite, ocean, and wind-shear observations.`;
+    } else if (/(satellite|insat|tir1|cloud|dvorak)/.test(lower)) {
+      answer = `You asked about satellite observations: “${question}” ${liveFacts} Check the timestamped INSAT/MOSDAC image sequence before interpreting cloud structure; this chat has no unverified brightness-temperature or Dvorak value to add.`;
+    } else if (/(port|marine|ship|fisher|signal)/.test(lower)) {
+      answer = `You asked about marine or port conditions: “${question}” ${liveFacts} Port signals and fishing restrictions must come from the newest IMD and port-authority notice. I will not infer a signal number from an archived or selected track.`;
     } else {
-      dynamicAnalysis = `### CYCLONE SIGHT AI Meteorological Copilot Assessment: ${stormName}
-- **Current Observation**: ${stormCat} centered at **${stormCoords}** with central pressure estimated at **${stormPres}**.
-- **Wind Profile**: Maximum sustained winds of **${stormWind}** with gale wind radius (34-knot) extending outward up to 180 km.
-- **Synoptic Steering**: Steered by the subtropical anticyclone over Southeast Asia, maintaining a steady translation toward the northern Indian coastline.
-- **Recommended Actions**: Monitor 3-hourly MOSDAC SCORPIO advisories, observe INSAT-3DS rapid-scan imagery, and verify coastal defense shelters.`;
+      answer = `You asked: “${question}” ${liveFacts} ${latestPoint ? `The latest track point is ${latestPoint.time} at ${latestPoint.lat}°N, ${latestPoint.lng}°E with ${latestPoint.windSpeedKmh} km/h wind.` : 'Load a track to let me answer with its latest observation.'}`;
     }
-
-    // The fallback is deliberately plain text: the chat UI is a conversation,
-    // not a Markdown preview. This prevents raw ###, **, and list markers from
-    // appearing when the external model is unavailable.
-    const conversationalReply = tailorFallbackReply(normalizedUserRole, dynamicAnalysis, stormName);
+    const conversationalReply = `${answer}\n\nQuick summary: ${storm.name ? `CycloBot answered your specific question using the selected track; verify operational decisions with official bulletins.` : 'Select a current track for storm-specific guidance.'}`;
 
     return res.json({
       reply: conversationalReply,

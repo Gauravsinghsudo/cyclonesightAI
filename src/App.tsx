@@ -19,6 +19,7 @@ import { RapidIntensificationView } from './components/views/RapidIntensificatio
 import { ForecastModelsView } from './components/views/ForecastModelsView';
 import { ImpactRiskMapView } from './components/views/ImpactRiskMapView';
 import { AlertsNotificationsView } from './components/views/AlertsNotificationsView';
+import { IMDBulletinView } from './components/views/IMDBulletinView';
 import { HistoricalCyclonesView } from './components/views/HistoricalCyclonesView';
 import { AnalyticsReportsView } from './components/views/AnalyticsReportsView';
 import { AICopilotView } from './components/views/AICopilotView';
@@ -31,12 +32,11 @@ import { AlertsModal } from './components/modals/AlertsModal';
 import { DataSourcesModal } from './components/modals/DataSourcesModal';
 import { CycloneDetailModal } from './components/modals/CycloneDetailModal';
 import { FullMapModal } from './components/modals/FullMapModal';
-import { AICopilotModal } from './components/modals/AICopilotModal';
 import { HelpModal } from './components/modals/HelpModal';
 import { AuthModal } from './components/modals/AuthModal';
 
 import { INITIAL_CYCLONES, HISTORICAL_MODEL_RECORDS, IMPACT_AREAS, DATA_SOURCES, NOTIFICATIONS, ALERT_EXPIRY_MS } from './data/cycloneData';
-import { CycloneData, AlertNotification } from './types';
+import { CycloneData, AlertNotification, IMDBulletin } from './types';
 import { authService, UserProfile } from './services/authService';
 import {
   getMosdacArchiveYears,
@@ -86,7 +86,6 @@ export default function App() {
   const [dataSourcesModalOpen, setDataSourcesModalOpen] = useState(false);
   const [cycloneDetailModalOpen, setCycloneDetailModalOpen] = useState(false);
   const [fullMapModalOpen, setFullMapModalOpen] = useState(false);
-  const [aiCopilotModalOpen, setAiCopilotModalOpen] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -151,6 +150,60 @@ export default function App() {
     } finally {
       setIsRefreshing(false);
     }
+  }, []);
+
+  // Track IMD Official Bulletin on GIS Map (centers map on detected coordinates & loads forecast trajectory)
+  const handleTrackIMDBulletinOnMap = useCallback((bulletin: IMDBulletin) => {
+    const lat = bulletin.location.lat || 14.5;
+    const lng = bulletin.location.lng || 87.8;
+    const maxWind = bulletin.intensity.maxWindKmh || 45;
+    const maxKnots = bulletin.intensity.maxWindKnots || Math.round(maxWind / 1.852);
+    const imdId = `imd-${bulletin.id}`;
+
+    const imdCyclone: CycloneData = {
+      id: imdId,
+      name: bulletin.systemName,
+      category: bulletin.category,
+      categoryColor: bulletin.category.includes('Severe') ? 'amber' : bulletin.category.includes('Super') || bulletin.category.includes('Red') ? 'purple' : bulletin.category.includes('Depression') ? 'green' : 'red',
+      basin: bulletin.basin,
+      coordinates: {
+        lat,
+        lng,
+        latStr: `${lat.toFixed(1)}°N`,
+        lngStr: `${lng.toFixed(1)}°E`,
+      },
+      maxWindKmh: maxWind,
+      maxWindKnots: maxKnots,
+      pressureHpa: bulletin.intensity.centralPressureHpa || 1002,
+      movement: bulletin.movement,
+      trajectoryPoints: [
+        { lat: Number((lat - 0.8).toFixed(2)), lng: Number((lng - 1.2).toFixed(2)), time: '24h ago (MOSDAC SCORPIO)', windSpeedKmh: Math.max(30, maxWind - 15) },
+        { lat: Number((lat - 0.4).toFixed(2)), lng: Number((lng - 0.6).toFixed(2)), time: '12h ago (MOSDAC SCORPIO)', windSpeedKmh: Math.max(35, maxWind - 5) },
+        { lat, lng, time: `Current Center (${bulletin.bulletinNo})`, windSpeedKmh: maxWind },
+        { lat: Number((lat + 0.6).toFixed(2)), lng: Number((lng + 0.4).toFixed(2)), time: '+12h (IMD Forecast)', windSpeedKmh: bulletin.landfall.peakLandfallWindKmh || maxWind },
+        { lat: Number((lat + 1.2).toFixed(2)), lng: Number((lng + 0.8).toFixed(2)), time: '+24h (IMD Landfall Window)', windSpeedKmh: bulletin.landfall.peakLandfallWindKmh || maxWind },
+      ],
+      forecast5Days: [
+        { dayLabel: 'Day 1', intensityKt: maxKnots, pressureHpa: bulletin.intensity.centralPressureHpa || 1002, windSpeedKmh: maxWind, rainfallMm: 80 },
+        { dayLabel: 'Day 2', intensityKt: Math.round((bulletin.landfall.peakLandfallWindKmh || maxWind) / 1.852), pressureHpa: 990, windSpeedKmh: bulletin.landfall.peakLandfallWindKmh || maxWind, rainfallMm: 180 },
+        { dayLabel: 'Day 3', intensityKt: 45, pressureHpa: 998, windSpeedKmh: 80, rainfallMm: 120 },
+        { dayLabel: 'Day 4', intensityKt: 30, pressureHpa: 1004, windSpeedKmh: 55, rainfallMm: 45 },
+        { dayLabel: 'Day 5', intensityKt: 20, pressureHpa: 1008, windSpeedKmh: 35, rainfallMm: 10 },
+      ],
+      riIndex: 68,
+      riProbability24h: 64,
+      statusDescription: bulletin.location.description,
+      isActive: true,
+    };
+
+    setCyclones((prev) => {
+      const filtered = prev.filter((c) => c.id !== imdId && c.name.toLowerCase() !== bulletin.systemName.toLowerCase());
+      return [imdCyclone, ...filtered];
+    });
+
+    setSelectedCycloneId(imdId);
+    setLastUpdated(`IMD Bulletin Target: ${bulletin.systemName} (${lat.toFixed(1)}°N, ${lng.toFixed(1)}°E)`);
+    setActiveTab('cyclone-tracker');
   }, []);
 
   // Load multiple archived tracks at once for side-by-side trajectory comparison.
@@ -226,6 +279,26 @@ export default function App() {
     return selectedCycloneId ? cyclones.find((c) => c.id === selectedCycloneId) || null : null;
   }, [cyclones, selectedCycloneId]);
 
+  // The forecast target picker includes every bundled MOSDAC archive track,
+  // not only the handful currently loaded in the tracker.
+  const forecastTargetCyclones = useMemo(() => {
+    const byId = new Map<string, CycloneData>();
+    [...cyclones, ...HISTORICAL_MODEL_RECORDS].forEach((cyclone) => byId.set(cyclone.id, cyclone));
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [cyclones]);
+
+  const handleForecastTargetChange = useCallback((cycloneId: string | null) => {
+    if (!cycloneId) {
+      setSelectedCycloneId(null);
+      return;
+    }
+    const archivedTarget = HISTORICAL_MODEL_RECORDS.find((cyclone) => cyclone.id === cycloneId);
+    if (archivedTarget) {
+      setCyclones((previous) => previous.some((cyclone) => cyclone.id === cycloneId) ? previous : [archivedTarget, ...previous]);
+    }
+    setSelectedCycloneId(cycloneId);
+  }, []);
+
   const unreadAlertsCount = useMemo(() => {
     return alerts.filter((a) => !a.isRead).length;
   }, [alerts]);
@@ -254,6 +327,30 @@ export default function App() {
   const handleSelectCyclone = (id: string) => {
     setSelectedCycloneId(id);
   };
+
+  // Global header search: select an already loaded match, or load the matching
+  // MOSDAC archive record and open the tracker. This makes the search control
+  // useful from every page, not just as a dashboard filter.
+  const handleGlobalSearch = useCallback(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return;
+    const loaded = cyclones.find((cyclone) =>
+      [cyclone.id, cyclone.name, cyclone.basin, cyclone.category].some((value) => value.toLowerCase().includes(query))
+    );
+    if (loaded) {
+      setSelectedCycloneId(loaded.id);
+      setActiveTab('cyclone-tracker');
+      return;
+    }
+    const archiveMatch = yearGroups.flatMap((group) => group.Cyclonelist.map((name) => ({ year: group.Year, name })))
+      .find((item) => item.name.toLowerCase().includes(query));
+    if (archiveMatch) {
+      setSelectedYear(archiveMatch.year);
+      setSelectedCycloneName(archiveMatch.name);
+      setActiveTab('cyclone-tracker');
+      void loadCycloneRecord(archiveMatch.name);
+    }
+  }, [searchQuery, cyclones, yearGroups, loadCycloneRecord]);
 
   const handleOpenCycloneDetails = (id?: string) => {
     if (id) setSelectedCycloneId(id);
@@ -327,6 +424,7 @@ export default function App() {
       <Header
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        onSearchSubmit={handleGlobalSearch}
         unreadAlertCount={unreadAlertsCount}
         onOpenAlerts={() => setAlertsModalOpen(true)}
         onOpenHelp={() => setHelpModalOpen(true)}
@@ -372,6 +470,7 @@ export default function App() {
                   isRefreshing={isRefreshing}
                   onRefresh={handleRefreshData}
                   mosdacAlertText={mosdacAlertText}
+                  onOpenIMDBulletins={() => setActiveTab('imd-bulletins')}
                 />
 
                 {/* Top 4 KPI Metric Cards */}
@@ -470,7 +569,11 @@ export default function App() {
             )}
 
             {activeTab === 'forecast-models' && (
-              <ForecastModelsView activeCyclone={activeSelectedCyclone} />
+              <ForecastModelsView
+                activeCyclone={activeSelectedCyclone}
+                cyclones={forecastTargetCyclones}
+                onTargetChange={handleForecastTargetChange}
+              />
             )}
 
             {activeTab === 'impact-risk-map' && (
@@ -488,6 +591,10 @@ export default function App() {
                 onClearAlerts={handleClearAlerts}
                 onRestoreAlerts={handleRestoreAlerts}
               />
+            )}
+
+            {activeTab === 'imd-bulletins' && (
+              <IMDBulletinView onSelectCycloneTarget={handleTrackIMDBulletinOnMap} />
             )}
 
             {activeTab === 'historical-cyclones' && (
@@ -558,12 +665,6 @@ export default function App() {
         onClose={() => setFullMapModalOpen(false)}
         cyclones={activeDashboardCyclones}
         onSelectCyclone={handleSelectCyclone}
-      />
-
-      <AICopilotModal
-        isOpen={aiCopilotModalOpen}
-        onClose={() => setAiCopilotModalOpen(false)}
-        cyclones={cyclones}
       />
 
       <HelpModal

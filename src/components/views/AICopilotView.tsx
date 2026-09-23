@@ -21,18 +21,11 @@ interface ChatMessage {
 // chat bubble, so it always reads like a normal message.
 function toConversationText(reply: unknown): string {
   if (typeof reply !== 'string') return 'I could not produce a reply just now. Please try again.';
-
-  return reply
-    .replace(/^\s*#{1,6}\s+.*(?:\r?\n|$)/gm, '')
-    .replace(/\*\*/g, '')
-    .replace(/^\s*[-*•]\s*/gm, '')
-    .replace(/\r?\n\s*\r?\n/g, '\n')
-    .replace(/\n{2,}/g, '\n')
-    .trim() || 'I could not produce a reply just now. Please try again.';
+  return reply.trim() || 'I could not produce a reply just now. Please try again.';
 }
 
 function splitSummary(text: string): { body: string; summary: string | null } {
-  const marker = /\s+(?:quick\s+summary|summary)\s*:\s*/i;
+  const marker = /\s*(?:quick\s+summary|quick\s+takeaway|executive\s+summary|summary|takeaway)\s*:\s*/i;
   const match = marker.exec(text);
   if (!match || match.index === undefined) return { body: text, summary: null };
   return {
@@ -44,27 +37,27 @@ function splitSummary(text: string): { body: string; summary: string | null } {
 const ROLE_CHAT_COPY: Record<NonNullable<UserProfile['role']>, { label: string; welcome: string; placeholder: string }> = {
   public: {
     label: 'Public guidance',
-    welcome: 'Hi — I’m CYCLONE SIGHT AI. I can explain cyclone alerts in simple language and help you understand what you should do to stay safe.',
+    welcome: 'Hi — I’m CycloBot. I can explain cyclone alerts in simple language and help you understand what you should do to stay safe.',
     placeholder: 'Ask about weather, alerts, or safety…',
   },
   disaster_manager: {
     label: 'Response coordination',
-    welcome: 'Hi — I’m CYCLONE SIGHT AI. I can help you review the active storm, priority areas, response actions, and plain-language public updates.',
+    welcome: 'Hi — I’m CycloBot. I can help you review the active storm, priority areas, response actions, and plain-language public updates.',
     placeholder: 'Ask about priorities, impacts, or response actions…',
   },
   coastal_official: {
     label: 'Coastal operations',
-    welcome: 'Hi — I’m CYCLONE SIGHT AI. I can help with coastal warnings, port conditions, local impacts, and clear operational next steps.',
+    welcome: 'Hi — I’m CycloBot. I can help with coastal warnings, port conditions, local impacts, and clear operational next steps.',
     placeholder: 'Ask about coastal alerts, ports, or local impacts…',
   },
   meteorologist: {
     label: 'Forecast analysis',
-    welcome: 'Hi — I’m CYCLONE SIGHT AI. I can discuss the active storm, satellite observations, intensity changes, and forecast uncertainty.',
+    welcome: 'Hi — I’m CycloBot. I can discuss the active storm, satellite observations, intensity changes, and forecast uncertainty.',
     placeholder: 'Ask about satellite data, track, or intensity…',
   },
   researcher: {
     label: 'Research analysis',
-    welcome: 'Hi — I’m CYCLONE SIGHT AI. I can help interpret cyclone observations, data sources, and uncertainty for your analysis.',
+    welcome: 'Hi — I’m CycloBot. I can help interpret cyclone observations, data sources, and uncertainty for your analysis.',
     placeholder: 'Ask about observations, methods, or data…',
   },
 };
@@ -85,9 +78,10 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ activeCyclone, use
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const samplePrompts = [
+    `Summarize latest official IMD Bulletin for ${activeCyclone?.name || 'the active cyclone'}`,
     `Analyze current landfall point and surge danger for ${activeCyclone?.name || 'the active cyclone'}`,
+    'What port warning signals are active in the latest IMD bulletin?',
     'How does MOSDAC SCORPIO evaluate Rapid Intensification (RI) probability?',
-    'What do INSAT-3DS TIR1 cloud-top temperatures tell meteorologists?',
     'Explain the differences between IMD Port Warning Signals 8, 9, 10, and 11',
   ];
 
@@ -161,7 +155,7 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ activeCyclone, use
           </div>
           <div>
             <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight">
-              {t('chat')}
+              CycloBot
             </h1>
             <p className="text-xs text-slate-400 mt-0.5">
               {t(userRole === 'meteorologist' ? 'forecastAnalysis' : userRole === 'disaster_manager' ? 'responseCoordination' : userRole === 'coastal_official' ? 'coastalOperations' : userRole === 'researcher' ? 'researchAnalysis' : 'publicGuidance')} in clear, natural language
@@ -210,9 +204,12 @@ export const AICopilotView: React.FC<AICopilotViewProps> = ({ activeCyclone, use
               >
                 {body}
                 {summary && (
-                  <div className="mt-3 rounded-xl border border-cyan-700/50 bg-cyan-950/35 px-3 py-2 text-slate-100">
-                    <span className="font-semibold text-cyan-300">Quick summary: </span>
-                    {summary}
+                  <div className="mt-3.5 p-3.5 rounded-xl border border-cyan-500/40 bg-gradient-to-r from-cyan-950/70 via-slate-900 to-blue-950/70 text-slate-100 shadow-md">
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-cyan-300 uppercase tracking-wider mb-1">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                      <span>Accurate Quick Summary</span>
+                    </div>
+                    <p className="text-xs sm:text-sm font-medium leading-relaxed text-cyan-50">{summary}</p>
                   </div>
                 )}
                 <div

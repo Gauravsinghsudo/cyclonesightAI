@@ -15,6 +15,7 @@ import {
   ExternalLink,
   X,
   UserCheck,
+  FileText,
 } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { DataSourceItem } from '../types';
@@ -27,6 +28,7 @@ export type NavItemId =
   | 'forecast-models'
   | 'impact-risk-map'
   | 'alerts-notifications'
+  | 'imd-bulletins'
   | 'historical-cyclones'
   | 'analytics-reports'
   | 'ai-copilot'
@@ -60,6 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'forecast-models' as NavItemId, label: t('forecastModels'), icon: LineChart },
     { id: 'impact-risk-map' as NavItemId, label: t('impactRiskMap'), icon: AlertTriangle },
     { id: 'alerts-notifications' as NavItemId, label: t('alertsNotifications'), icon: Bell },
+    { id: 'imd-bulletins' as NavItemId, label: 'IMD Official Bulletins', icon: FileText, isNew: true },
     { id: 'historical-cyclones' as NavItemId, label: t('historicalCyclones'), icon: History },
     { id: 'analytics-reports' as NavItemId, label: t('analyticsReports'), icon: BarChart3 },
     { id: 'ai-copilot' as NavItemId, label: t('aiCopilot'), icon: Bot, isNew: true },

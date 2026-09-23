@@ -81,14 +81,20 @@ function linearTrend(values: number[]): { slope: number; intercept: number } {
  * selected record's recent observed points; it is not a replacement for IMD
  * forecasts or a numerical weather prediction model.
  */
-export function buildPersonalizedForecast(cyclone: CycloneData | null | undefined, profile: ForecastProfile): PersonalizedForecast | null {
+export function buildPersonalizedForecast(
+  cyclone: CycloneData | null | undefined,
+  profile: ForecastProfile,
+  forecastHours = 24,
+): PersonalizedForecast | null {
   if (!cyclone) return null;
 
   const observed = cyclone.trajectoryPoints.filter((point) => !point.time.includes('(Fcst)') && !point.time.startsWith('+'));
   const samples: TrajectoryPoint[] = (observed.length >= 2 ? observed : cyclone.trajectoryPoints).slice(-6);
   if (samples.length < 2) return null;
 
-  const stepsAhead = 4; // Track records are six-hourly, so this is a +24-hour aid.
+  // MOSDAC track epochs are normally six-hourly. The horizon is explicit so
+  // callers never present a 24-hour calculation as a 6- or 12-hour forecast.
+  const stepsAhead = Math.max(1, Math.round(forecastHours / 6));
   const latestIndex = samples.length - 1;
   const windTrend = linearTrend(samples.map((point) => point.windSpeedKmh));
   const latTrend = linearTrend(samples.map((point) => point.lat));
@@ -103,7 +109,7 @@ export function buildPersonalizedForecast(cyclone: CycloneData | null | undefine
   return {
     profile,
     trainingSamples: samples.length,
-    forecastHours: 24,
+    forecastHours: stepsAhead * 6,
     windKmh,
     pressureHpa,
     latitude: Number((latTrend.intercept + latTrend.slope * (latestIndex + stepsAhead)).toFixed(2)),

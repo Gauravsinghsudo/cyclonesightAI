@@ -7,6 +7,7 @@ import { useI18n } from '../i18n';
 interface HeaderProps {
   searchQuery: string;
   onSearchChange: (q: string) => void;
+  onSearchSubmit: () => void;
   unreadAlertCount: number;
   onOpenAlerts: () => void;
   onOpenHelp: () => void;
@@ -18,6 +19,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   searchQuery,
   onSearchChange,
+  onSearchSubmit,
   unreadAlertCount,
   onOpenAlerts,
   onOpenHelp,
@@ -84,14 +86,15 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Center: Search Bar */}
       <div className="flex-1 max-w-md mx-4 hidden md:block">
         <div className="relative">
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
+          <button type="button" onClick={onSearchSubmit} className="absolute inset-y-0 left-0 flex items-center pl-3 pr-2 text-slate-400 hover:text-cyan-300" aria-label="Search cyclone records">
             <Search className="w-4 h-4" />
-          </div>
+          </button>
           <input
             id="cyclone-search-input"
             type="text"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') onSearchSubmit(); }}
             placeholder={t('search')}
             className="w-full rounded-xl bg-slate-900/90 border border-slate-800 py-1.5 pl-9 pr-4 text-xs sm:text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-all shadow-inner"
           />

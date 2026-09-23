@@ -1,5 +1,5 @@
 import React from 'react';
-import { RefreshCw, Radio, Database, ExternalLink } from 'lucide-react';
+import { RefreshCw, Radio, Database, ExternalLink, FileText } from 'lucide-react';
 import { useI18n } from '../i18n';
 
 interface SubHeaderProps {
@@ -13,6 +13,7 @@ interface SubHeaderProps {
   isRefreshing: boolean;
   onRefresh: () => void;
   mosdacAlertText?: string;
+  onOpenIMDBulletins?: () => void;
 }
 
 export const SubHeader: React.FC<SubHeaderProps> = ({
@@ -26,6 +27,7 @@ export const SubHeader: React.FC<SubHeaderProps> = ({
   isRefreshing,
   onRefresh,
   mosdacAlertText = 'No Cyclone in Indian Ocean',
+  onOpenIMDBulletins,
 }) => {
   const { t } = useI18n();
   return (
@@ -48,6 +50,17 @@ export const SubHeader: React.FC<SubHeaderProps> = ({
               <span>mosdac.gov.in/scorpio</span>
               <ExternalLink className="w-2.5 h-2.5 opacity-70" />
             </a>
+
+            {onOpenIMDBulletins && (
+              <button
+                onClick={onOpenIMDBulletins}
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-orange-950/80 text-orange-300 border border-orange-800/60 hover:bg-orange-900/80 transition cursor-pointer"
+                title="View Official IMD Tropical Cyclone Bulletins & Warnings"
+              >
+                <FileText className="w-3 h-3 text-orange-400" />
+                <span>IMD Bulletins &amp; Warnings</span>
+              </button>
+            )}
           </div>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
             Satellite-based Cyclone Observation & Real-time Prediction over Indian Ocean (INSAT-3DS / INSAT-3DR)

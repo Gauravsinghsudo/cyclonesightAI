@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { Archive, Search, Calendar, Compass, ExternalLink, ArrowRight, Wind, ShieldCheck } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Archive, Search, Calendar, ExternalLink, ArrowRight, Download } from 'lucide-react';
 import { CycloneData } from '../../types';
 import localMosdacDb from '../../data/mosdacRecords.json';
-import { convertMosdacTrackToCycloneData, MosdacFeatureCollection } from '../../services/mosdacService';
+import { convertMosdacTrackToCycloneData, getMosdacArchiveYears, getMosdacCycloneTrack, MosdacFeatureCollection, MosdacYearGroup } from '../../services/mosdacService';
 
 interface HistoricalCyclonesViewProps {
   onLoadCycloneToActive: (cyclone: CycloneData) => void;
@@ -11,9 +11,14 @@ interface HistoricalCyclonesViewProps {
 export const HistoricalCyclonesView: React.FC<HistoricalCyclonesViewProps> = ({ onLoadCycloneToActive }) => {
   const [selectedYear, setSelectedYear] = useState<string>('2024');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [liveYears, setLiveYears] = useState<MosdacYearGroup[] | null>(null);
+  const [loadingName, setLoadingName] = useState<string | null>(null);
 
-  const yearList = (localMosdacDb as any).yearList || [];
+  const fallbackYearList = (localMosdacDb as any).yearList || [];
+  const yearList = liveYears || fallbackYearList;
   const tracksMap = ((localMosdacDb as any).tracks || {}) as Record<string, MosdacFeatureCollection>;
+
+  useEffect(() => { getMosdacArchiveYears().then((years) => years.length && setLiveYears(years)); }, []);
 
   // Filter years
   const currentYearGroup = useMemo(() => {
@@ -40,8 +45,10 @@ export const HistoricalCyclonesView: React.FC<HistoricalCyclonesViewProps> = ({ 
       .map((name: string) => ({ year: selectedYear, name }));
   }, [yearList, currentYearGroup, selectedYear, searchQuery]);
 
-  const handleSelectStorm = (stormName: string) => {
-    const rawTrack = tracksMap[stormName.toUpperCase()];
+  const loadTrack = async (stormName: string) => {
+    setLoadingName(stormName);
+    const rawTrack = await getMosdacCycloneTrack(stormName);
+    setLoadingName(null);
     if (rawTrack) {
       const cData = convertMosdacTrackToCycloneData(stormName, rawTrack);
       onLoadCycloneToActive(cData);
@@ -65,6 +72,19 @@ export const HistoricalCyclonesView: React.FC<HistoricalCyclonesViewProps> = ({ 
         statusDescription: `Historical cyclone records from MOSDAC SCORPIO for ${stormName}.`,
       });
     }
+    return rawTrack;
+  };
+  const handleSelectStorm = (stormName: string) => { void loadTrack(stormName); };
+  const handleDownload = async (stormName: string) => {
+    const track = await loadTrack(stormName);
+    if (!track) return;
+    const file = new Blob([JSON.stringify(track, null, 2)], { type: 'application/geo+json' });
+    const url = URL.createObjectURL(file);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `MOSDAC_SCORPIO_${stormName.toUpperCase()}_track.geojson`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -186,10 +206,14 @@ export const HistoricalCyclonesView: React.FC<HistoricalCyclonesViewProps> = ({ 
               <div className="mt-5 pt-3 border-t border-slate-800/80">
                 <button
                   onClick={() => handleSelectStorm(name)}
+                  disabled={loadingName === name}
                   className="w-full py-2 px-3 bg-blue-600/90 hover:bg-blue-600 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md shadow-blue-600/20"
                 >
-                  <span>Load Into Active Telemetry &amp; Map</span>
+                  <span>{loadingName === name ? 'Loading verified track…' : 'Load Into Active Telemetry & Map'}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={() => { void handleDownload(name); }} disabled={loadingName === name} className="mt-2 w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-cyan-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border border-slate-700">
+                  <Download className="w-3.5 h-3.5" /><span>Download official GeoJSON track</span>
                 </button>
               </div>
             </div>

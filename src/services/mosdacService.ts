@@ -11,6 +11,7 @@ export interface MosdacAlertInfo {
   activeCyclogenesis: boolean;
   coordinates: { lng: number; lat: number };
   source: string;
+  isLive?: boolean;
   timestamp: string;
 }
 
@@ -241,6 +242,7 @@ export async function getMosdacLiveAlert(): Promise<MosdacAlertInfo> {
     activeCyclogenesis: (localMosdacDb.alertText || '').includes('Cyclogenesis'),
     coordinates: { lng: 89.0, lat: 20.5 },
     source: 'https://mosdac.gov.in/scorpio/alertfile.txt',
+    isLive: false,
     timestamp: new Date().toISOString(),
   };
 }

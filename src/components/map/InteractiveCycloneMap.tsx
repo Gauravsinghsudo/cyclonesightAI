@@ -80,9 +80,14 @@ export const InteractiveCycloneMap: React.FC<InteractiveCycloneMapProps> = ({
   // Map view layers
   const [showSatelliteIR, setShowSatelliteIR] = useState(true);
   const [showForecastCone, setShowForecastCone] = useState(true);
-  const [showWindIsotachs, setShowWindIsotachs] = useState(true);
-  const [showSurgeHazard, setShowSurgeHazard] = useState(true);
-  const [showCities, setShowCities] = useState(true);
+  // Wind radii need an authenticated, source-specific feed. Keep them off
+  // instead of drawing estimated circular rings over the geographic map.
+  const [showWindIsotachs, setShowWindIsotachs] = useState(false);
+  // These overlays were static illustrative values and obscured live tracks.
+  // They remain opt-in controls, but are off until a source-backed layer is
+  // available for the selected storm.
+  const [showSurgeHazard, setShowSurgeHazard] = useState(false);
+  const [showCities, setShowCities] = useState(false);
   const [showLatLonGrid, setShowLatLonGrid] = useState(true);
   const [satelliteColorMode, setSatelliteColorMode] = useState<'TIR1' | 'WV' | 'VIS' | 'TCHCP'>('TIR1');
   const [animateVortex, setAnimateVortex] = useState(true);
@@ -559,12 +564,10 @@ export const InteractiveCycloneMap: React.FC<InteractiveCycloneMapProps> = ({
           )}
 
           {/* 4. Ocean Thermal Heat Layer (TCHCP) if active */}
-          {satelliteColorMode === 'TCHCP' && showSatelliteIR && (
-            <circle cx={svgWidth * 0.65} cy={svgHeight * 0.45} r={280} fill="url(#tchcpOceanHeat)" />
-          )}
+          {/* TCHCP needs a gridded ocean product; no simulated circular heat overlay. */}
 
           {/* 5. Storm Surge Coastal Hazard Overlay along Threatened Coastline */}
-          {showSurgeHazard && (
+          {false && showSurgeHazard && (
             <g id="surge-hazard-ribbon">
               {/* Glowing hazard line along Dhamra - Balasore - Digha - Sundarbans */}
               <path
@@ -661,20 +664,6 @@ export const InteractiveCycloneMap: React.FC<InteractiveCycloneMapProps> = ({
                   stroke={isCurrent ? '#3b82f6' : '#0f172a'}
                   strokeWidth={isCurrent ? 3 : 1.5}
                 />
-                {/* Date/hour label on selected nodes */}
-                {(idx === 0 || idx === trajectoryPoints.length - 1 || idx % 3 === 0 || isCurrent) && (
-                  <text
-                    x={pt.x + 9}
-                    y={pt.y + 3}
-                    fill={isCurrent ? '#ffffff' : '#cbd5e1'}
-                    fontSize="9.5"
-                    fontFamily="sans-serif"
-                    fontWeight={isCurrent ? 'bold' : 'normal'}
-                    className="select-none drop-shadow"
-                  >
-                    {tp.time.replace(' (Fcst)', '')}
-                  </text>
-                )}
               </g>
             );
           })}
@@ -728,13 +717,11 @@ export const InteractiveCycloneMap: React.FC<InteractiveCycloneMapProps> = ({
             </g>
           )}
 
-          {/* 10. Multi-Spectral INSAT-3DS Satellite Cloud Spiral Vortex */}
-          {showSatelliteIR && (
-            <g
-              transform={`translate(${currentPos.x}, ${currentPos.y})`}
-              className={animateVortex ? 'animate-[spin_40s_linear_infinite]' : ''}
-              style={{ transformOrigin: `${currentPos.x}px ${currentPos.y}px` }}
-            >
+          {/* 10. A real satellite raster belongs here once a dated MOSDAC WMS
+              dataset is selected. The old decorative circular vortex was
+              intentionally removed so it cannot be confused with observation. */}
+          {false && showSatelliteIR && (
+            <g transform={`translate(${currentPos.x}, ${currentPos.y})`} className={animateVortex ? 'animate-[spin_40s_linear_infinite]' : ''} style={{ transformOrigin: `${currentPos.x}px ${currentPos.y}px` }}>
               {/* Outer feeder cloud bands */}
               <path
                 d="M 0,0 Q -90,-40 -120,-10 C -140,20 -90,90 -20,110 Q 50,120 100,70 Q 140,30 110,-40 Q 80,-100 -20,-110"
@@ -768,7 +755,8 @@ export const InteractiveCycloneMap: React.FC<InteractiveCycloneMapProps> = ({
             </g>
           )}
 
-          {/* 11. Storm Center Label & Vital Telemetry */}
+          {/* 11. Current-location marker. Details are available on hover so
+              labels never collide with the basemap or the track. */}
           <g transform={`translate(${currentPos.x}, ${currentPos.y})`}>
             {/* Pulsing center radar beacon */}
             <circle cx="0" cy="0" r="14" fill="none" stroke="#60a5fa" strokeWidth="2" opacity="0.7">
@@ -776,19 +764,6 @@ export const InteractiveCycloneMap: React.FC<InteractiveCycloneMapProps> = ({
               <animate attributeName="opacity" values="0.8;0.1;0.8" dur="2.5s" repeatCount="indefinite" />
             </circle>
 
-            {/* Label Card */}
-            <g transform="translate(18, -32)">
-              <rect width="136" height="48" rx="6" fill="#0a1324" stroke="#3b82f6" strokeWidth="1.5" opacity="0.92" />
-              <text x="8" y="16" fill="#ffffff" fontWeight="bold" fontSize="12" fontFamily="sans-serif">
-                {activeCyclone?.name || 'Cyclone Vortex'}
-              </text>
-              <text x="8" y="30" fill="#60a5fa" fontSize="10" fontFamily="sans-serif">
-                {activeCyclone?.category || 'Cyclonic Storm'}
-              </text>
-              <text x="8" y="42" fill="#94a3b8" fontSize="9" fontFamily="monospace">
-                {activeCyclone?.maxWindKmh || 95} km/h • {activeCyclone?.pressureHpa || 985} hPa
-              </text>
-            </g>
           </g>
 
           {/* 12. Coastal Cities, Ports & Landfall Anchors */}

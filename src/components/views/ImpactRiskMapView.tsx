@@ -1,7 +1,7 @@
 import React from 'react';
 import { ShieldAlert, AlertOctagon, Anchor, Users, Waves, MapPin, CheckCircle } from 'lucide-react';
 import { CycloneData } from '../../types';
-import { InteractiveCycloneMap } from '../map/InteractiveCycloneMap';
+import { LeafletCycloneMap } from '../map/LeafletCycloneMap';
 
 interface ImpactRiskMapViewProps {
   cyclones: CycloneData[];
@@ -14,7 +14,12 @@ export const ImpactRiskMapView: React.FC<ImpactRiskMapViewProps> = ({
   selectedCycloneId,
   onSelectCyclone,
 }) => {
-  const activeCyclone = cyclones.find((c) => c.id === selectedCycloneId) || cyclones[0] || null;
+  // Impact products are operational views. Archived storms such as DANA must
+  // never be carried into this map merely because they were selected elsewhere.
+  const liveCyclones = cyclones.filter((cyclone) => cyclone.isActive === true);
+  const liveSelectedId = liveCyclones.some((cyclone) => cyclone.id === selectedCycloneId)
+    ? selectedCycloneId
+    : liveCyclones[0]?.id || null;
 
   const portWarnings = [
     { port: 'Dhamra Port', state: 'Odisha', signal: 'Signal No. 10 (Great Danger)', status: 'Operations Suspended' },
@@ -67,15 +72,16 @@ export const ImpactRiskMapView: React.FC<ImpactRiskMapViewProps> = ({
               Coastal Inundation &amp; Storm Surge GIS Map
             </h2>
           </div>
-          <span className="text-xs text-rose-400 font-semibold">Max Estimated Surge: 4.0m above astronomical tide</span>
+          <span className="text-xs text-slate-400 font-semibold">Source-backed overlays only</span>
         </div>
 
-        <InteractiveCycloneMap
-          cyclones={cyclones}
-          selectedCycloneId={selectedCycloneId}
+        <LeafletCycloneMap
+          cyclones={liveCyclones}
+          selectedCycloneId={liveSelectedId}
           onSelectCyclone={onSelectCyclone}
           height="540px"
           showControls={true}
+          emptyStateMessage="No active cyclone is being tracked. The map remains available for geography and live source layers; archived tracks are intentionally excluded."
         />
       </div>
 

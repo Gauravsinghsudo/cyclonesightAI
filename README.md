@@ -31,7 +31,10 @@ DATABASE_SSL="false"
 
 The application will not create accounts until `DATABASE_URL` is configured.
 
-## Deploy to Vercel
+## Deploy to Render
 
-Vercel serves the Vite PWA and routes `/api/*` requests to the Express serverless function. Import the PostgreSQL schema, then add `DATABASE_URL`, `DATABASE_SSL`, `GEMINI_API_KEY`, and optional MOSDAC credentials under **Vercel Project Settings → Environment Variables** before production use.
+This project includes a `render.yaml` Blueprint specification. To deploy on Render:
+1. Connect your repository `Gauravsinghsudo/cyclonesightAI` on [Render](https://render.com).
+2. Create a Web Service with Build Command `npm install && npm run build` and Start Command `npm start`.
+3. Set environment variables (`GEMINI_API_KEY`, `DATABASE_URL`, `DATABASE_SSL`, `MOSDAC_USERNAME`, `MOSDAC_PASSWORD`).
 

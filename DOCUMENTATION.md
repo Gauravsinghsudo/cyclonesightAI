@@ -32,7 +32,7 @@ The platform bridges real-time satellite telemetry from ISRO's **MOSDAC (Meteoro
 ### Backend & Middleware Architecture
 - **Runtime Environment:** Node.js with `tsx` development runner and `esbuild` bundling
 - **Server Framework:** Express 5 (`express`) with rate-limiting, custom caching, and WMS proxying
-- **Deployment Strategy:** Hybrid Express server (for local execution) + Vercel Serverless Functions (`/api/*` route handler export)
+- **Deployment Strategy:** Express server bundled with `esbuild` for Render Web Service deployment
 
 ### Database & Security Layer
 - **Primary Database:** PostgreSQL (`pg` pool connection)
@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 ```
 Cyclon_desaster_management/
 ├── server.ts                    # Full-stack Express 5 server & API routes
-├── vercel.json                  # Vercel serverless deployment config
+├── render.yaml                  # Render Blueprint deployment config
 ├── vite.config.ts               # Vite configuration with PWA & Tailwind
 ├── package.json                 # Dependency definitions & scripts
 ├── cyclone_sight_ai_database.sql# PostgreSQL database schema script

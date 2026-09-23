@@ -1090,10 +1090,6 @@ async function startServer() {
   });
 }
 
-// Vercel invokes the exported Express application as a serverless function.
-// Local development continues to run the Vite middleware and HTTP listener.
-if (!process.env.VERCEL) {
-  startServer();
-}
+startServer();
 
 export default app;
